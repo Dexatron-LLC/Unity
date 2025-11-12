@@ -1,5 +1,5 @@
-"""Web scraping tools."""
+"""Utility tools for Unity documentation processing."""
 
-from .unity_scraper import UnityDocsScraper
+from .utils import get_page_id, get_doc_type
 
-__all__ = ["UnityDocsScraper"]
+__all__ = ["get_page_id", "get_doc_type"]

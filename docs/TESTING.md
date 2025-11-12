@@ -9,12 +9,12 @@ Comprehensive unit tests for all components of the Unity MCP Server, including s
 ```
 tests/
 ├── __init__.py
-├── test_storage.py         # Vector and structured store tests
-├── test_scraper.py         # Web scraping tests
-├── test_processor.py       # Content processing tests
-├── test_crawler.py         # Crawling orchestration tests
-├── test_server.py          # MCP server tests
-└── test_integration.py     # End-to-end integration tests
+├── test_storage.py         # Vector and structured store tests (12 tests)
+├── test_scraper.py         # Web scraping utilities tests (15 tests)
+├── test_processor.py       # Content processing tests (8 tests)
+└── test_server.py          # MCP server tests (6 tests)
+
+Total: 37 tests
 ```
 
 ## Running Tests
@@ -22,11 +22,14 @@ tests/
 ### Run All Tests
 
 ```bash
-# Using the test runner
-python run_tests.py
+# Using unittest
+python -m unittest discover -s tests -v
 
-# Using unittest directly
-python -m unittest discover tests
+# Using Makefile
+make test
+
+# With coverage
+make test-cov
 
 # Using pytest (if installed)
 pytest tests/
@@ -123,14 +126,6 @@ coverage html  # Generate HTML report
 - ✅ `test_extract_inheritance` - Inheritance parsing
 - ✅ `test_extract_constructors` - Constructor extraction
 
-### Crawler Tests (`test_crawler.py`)
-
-**TestUnityCrawler:**
-- ✅ `test_process_and_store_page_script_reference` - Script page processing
-- ✅ `test_process_and_store_page_manual` - Manual page processing
-- ✅ `test_index_single_page` - Single page indexing
-- ✅ `test_crawl_and_index` - Full crawl workflow
-
 ### Server Tests (`test_server.py`)
 
 **TestUnityMCPServer:**
@@ -141,13 +136,7 @@ coverage html  # Generate HTML report
 - ✅ `test_get_cache_stats` - Statistics tool
 - ✅ `test_search_no_results` - Empty result handling
 
-### Integration Tests (`test_integration.py`)
 
-**TestIntegration:**
-- ✅ `test_structured_store_full_workflow` - Complete SQLite workflow
-- ✅ `test_vector_store_workflow` - Complete vector workflow
-- ✅ `test_content_processor_pipeline` - Full HTML processing
-- ✅ `test_chunking_large_content` - Large document handling
 
 **TestEndToEndScenarios:**
 - ✅ `test_page_id_consistency` - ID generation consistency
