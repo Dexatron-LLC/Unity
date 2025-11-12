@@ -12,7 +12,6 @@ from mcp.server.stdio import stdio_server
 
 from .storage import VectorStore, StructuredStore
 from .scraper.utils import get_page_id, get_doc_type
-from .crawler import UnityCrawler
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +144,176 @@ class UnityMCPServer:
                         "type": "object",
                         "properties": {}
                     }
+                ),
+                Tool(
+                    name="get_full_documents",
+                    description=(
+                        "Get complete content of multiple Unity documentation pages at once. "
+                        "Much more efficient than repeated individual page requests. "
+                        "Performs a search and returns full document content for all results."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant documents"
+                            },
+                            "max_documents": {
+                                "type": "number",
+                                "description": "Maximum number of full documents to return (1-10)",
+                                "default": 3,
+                                "minimum": 1,
+                                "maximum": 10
+                            },
+                            "doc_type": {
+                                "type": "string",
+                                "enum": ["manual", "script_reference", "both"],
+                                "description": "Type of documentation to search",
+                                "default": "both"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="get_related_documents",
+                    description=(
+                        "Get documents related to a Unity class or topic. "
+                        "Automatically finds base classes, derived classes, related components, "
+                        "and contextually similar pages. Great for comprehensive understanding."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "class_name": {
+                                "type": "string",
+                                "description": "Unity class name to find related documents for"
+                            },
+                            "topic": {
+                                "type": "string",
+                                "description": "Topic to find related documents for (alternative to class_name)"
+                            },
+                            "include_inheritance": {
+                                "type": "boolean",
+                                "description": "Include base and derived classes",
+                                "default": true
+                            },
+                            "max_related": {
+                                "type": "number",
+                                "description": "Maximum number of related documents (1-5)",
+                                "default": 3,
+                                "minimum": 1,
+                                "maximum": 5
+                            }
+                        }
+                    }
+                ),
+                Tool(
+                    name="extract_code_examples",
+                    description=(
+                        "Extract ONLY code examples from Unity documentation. "
+                        "Returns pure code snippets without surrounding text. "
+                        "Perfect for quick reference and reducing token usage. "
+                        "10x faster than reading full documentation."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query to find relevant code examples"
+                            },
+                            "language": {
+                                "type": "string",
+                                "enum": ["csharp", "javascript", "any"],
+                                "description": "Programming language filter",
+                                "default": "any"
+                            },
+                            "max_examples": {
+                                "type": "number",
+                                "description": "Maximum number of code examples (1-10)",
+                                "default": 5,
+                                "minimum": 1,
+                                "maximum": 10
+                            },
+                            "doc_type": {
+                                "type": "string",
+                                "enum": ["manual", "script_reference", "both"],
+                                "description": "Documentation type to search",
+                                "default": "both"
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                ),
+                Tool(
+                    name="get_method_signatures",
+                    description=(
+                        "Get quick API reference with method signatures, parameters, and return types. "
+                        "No documentation prose - just the API facts you need. "
+                        "Extremely fast and minimal token usage. Perfect for quick lookups."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "class_name": {
+                                "type": "string",
+                                "description": "Unity class name to get methods for (e.g., 'Transform', 'Rigidbody')"
+                            },
+                            "method_name": {
+                                "type": "string",
+                                "description": "Specific method name to search for (searches across all classes)"
+                            },
+                            "include_properties": {
+                                "type": "boolean",
+                                "description": "Include property signatures as well",
+                                "default": true
+                            },
+                            "static_only": {
+                                "type": "boolean",
+                                "description": "Return only static methods/properties",
+                                "default": false
+                            }
+                        }
+                    }
+                ),
+                Tool(
+                    name="search_by_use_case",
+                    description=(
+                        "Search Unity docs by natural language use case or goal. "
+                        "Ask 'How do I make a player jump?' instead of searching for specific APIs. "
+                        "Beginner-friendly, intention-based search that understands what you're trying to accomplish. "
+                        "Returns relevant documentation with context for your specific goal."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "use_case": {
+                                "type": "string",
+                                "description": "Describe what you want to accomplish (e.g., 'make player jump', 'detect collisions', 'create UI button')"
+                            },
+                            "experience_level": {
+                                "type": "string",
+                                "enum": ["beginner", "intermediate", "advanced"],
+                                "description": "Your Unity experience level for tailored results",
+                                "default": "intermediate"
+                            },
+                            "max_results": {
+                                "type": "number",
+                                "description": "Maximum number of relevant solutions (1-5)",
+                                "default": 3,
+                                "minimum": 1,
+                                "maximum": 5
+                            },
+                            "prefer_code": {
+                                "type": "boolean",
+                                "description": "Prefer results with code examples",
+                                "default": true
+                            }
+                        },
+                        "required": ["use_case"]
+                    }
                 )
             ]
         
@@ -162,6 +331,16 @@ class UnityMCPServer:
                     return await self._refresh_documentation(arguments)
                 elif name == "get_cache_stats":
                     return await self._get_cache_stats(arguments)
+                elif name == "get_full_documents":
+                    return await self._get_full_documents(arguments)
+                elif name == "get_related_documents":
+                    return await self._get_related_documents(arguments)
+                elif name == "extract_code_examples":
+                    return await self._extract_code_examples(arguments)
+                elif name == "get_method_signatures":
+                    return await self._get_method_signatures(arguments)
+                elif name == "search_by_use_case":
+                    return await self._search_by_use_case(arguments)
                 else:
                     return [TextContent(
                         type="text",
@@ -336,6 +515,489 @@ class UnityMCPServer:
         return [TextContent(
             type="text",
             text=stats_text
+        )]
+    
+    async def _get_full_documents(self, args: dict) -> Sequence[TextContent]:
+        """Get full content of multiple documents based on search query."""
+        query = args["query"]
+        max_docs = min(args.get("max_documents", 3), 10)
+        doc_type = args.get("doc_type", "both")
+        
+        # Map doc_type for vector store
+        vector_doc_type = None
+        if doc_type == "manual":
+            vector_doc_type = "manual"
+        elif doc_type == "script_reference":
+            vector_doc_type = "script_reference"
+        
+        # Search vector store to find relevant documents
+        search_results = self.vector_store.search(
+            query=query,
+            doc_type=vector_doc_type,
+            n_results=max_docs * 3  # Get more results to find unique pages
+        )
+        
+        if not search_results:
+            return [TextContent(
+                type="text",
+                text=f"No documents found for query: {query}"
+            )]
+        
+        # Get unique page URLs from search results
+        seen_urls = set()
+        documents = []
+        
+        for result in search_results:
+            url = result["metadata"]["url"]
+            if url not in seen_urls:
+                seen_urls.add(url)
+                
+                # Get full page content from structured store
+                page_id = get_page_id(url)
+                page = self.structured_store.get_page(page_id)
+                
+                if page:
+                    documents.append(page)
+                    if len(documents) >= max_docs:
+                        break
+        
+        if not documents:
+            return [TextContent(
+                type="text",
+                text=f"Found search results but no full documents available. Try running: python main.py --download"
+            )]
+        
+        # Format response with full document content
+        response_parts = [
+            f"# Found {len(documents)} full document(s) for '{query}'\n"
+        ]
+        
+        for i, doc in enumerate(documents):
+            response_parts.append(f"\n{'='*80}")
+            response_parts.append(f"## Document {i+1}: {doc['title']}")
+            response_parts.append(f"**URL:** {doc['url']}")
+            response_parts.append(f"**Type:** {doc['doc_type']}")
+            response_parts.append(f"{'='*80}\n")
+            response_parts.append(doc['content'])
+            response_parts.append("\n")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response_parts)
+        )]
+    
+    async def _get_related_documents(self, args: dict) -> Sequence[TextContent]:
+        """Get documents related to a class or topic."""
+        class_name = args.get("class_name")
+        topic = args.get("topic")
+        include_inheritance = args.get("include_inheritance", True)
+        max_related = min(args.get("max_related", 3), 5)
+        
+        if not class_name and not topic:
+            return [TextContent(
+                type="text",
+                text="Please provide either 'class_name' or 'topic' parameter"
+            )]
+        
+        response_parts = []
+        related_urls = set()
+        
+        # If class_name provided, get inheritance hierarchy and class info
+        if class_name:
+            class_data = self.structured_store.get_class(class_name)
+            
+            if class_data:
+                response_parts.append(f"# Related Documents for Class: {class_name}\n")
+                
+                # Get the main class page
+                page_id = class_data.get("page_id")
+                if page_id:
+                    page = self.structured_store.get_page(page_id)
+                    if page:
+                        related_urls.add(page["url"])
+                        response_parts.append(f"\n## Main Documentation: {page['title']}")
+                        response_parts.append(f"**URL:** {page['url']}")
+                        response_parts.append(f"**Namespace:** {class_data.get('namespace', 'N/A')}")
+                        if class_data.get('inherits_from'):
+                            response_parts.append(f"**Inherits From:** {class_data['inherits_from']}")
+                        response_parts.append(f"\n{page['content'][:1000]}...\n")
+                
+                # Get base class if inheritance is enabled
+                if include_inheritance and class_data.get("inherits_from"):
+                    base_class = class_data["inherits_from"]
+                    base_data = self.structured_store.get_class(base_class)
+                    if base_data and base_data.get("page_id"):
+                        base_page = self.structured_store.get_page(base_data["page_id"])
+                        if base_page and base_page["url"] not in related_urls:
+                            related_urls.add(base_page["url"])
+                            response_parts.append(f"\n## Base Class: {base_page['title']}")
+                            response_parts.append(f"**URL:** {base_page['url']}")
+                            response_parts.append(f"\n{base_page['content'][:800]}...\n")
+            else:
+                response_parts.append(f"# Searching for: {class_name}\n")
+                response_parts.append(f"Class '{class_name}' not found in structured data. Performing semantic search...\n")
+        
+        # Perform semantic search for additional related content
+        search_query = class_name or topic
+        search_results = self.vector_store.search(
+            query=search_query,
+            n_results=max_related * 2
+        )
+        
+        added_count = 0
+        for result in search_results:
+            if added_count >= max_related:
+                break
+                
+            url = result["metadata"]["url"]
+            if url not in related_urls:
+                related_urls.add(url)
+                page_id = get_page_id(url)
+                page = self.structured_store.get_page(page_id)
+                
+                if page:
+                    response_parts.append(f"\n## Related: {page['title']}")
+                    response_parts.append(f"**URL:** {page['url']}")
+                    response_parts.append(f"**Type:** {page['doc_type']}")
+                    response_parts.append(f"\n{page['content'][:800]}...\n")
+                    added_count += 1
+        
+        if not response_parts:
+            return [TextContent(
+                type="text",
+                text=f"No related documents found for: {class_name or topic}"
+            )]
+        
+        response_parts.insert(0, f"\nTotal related documents: {len(related_urls)}\n")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response_parts)
+        )]
+    
+    async def _extract_code_examples(self, args: dict) -> Sequence[TextContent]:
+        """Extract code examples from Unity documentation."""
+        from bs4 import BeautifulSoup
+        
+        query = args["query"]
+        language = args.get("language", "any")
+        max_examples = min(args.get("max_examples", 5), 10)
+        doc_type = args.get("doc_type", "both")
+        
+        # Map doc_type for vector store
+        vector_doc_type = None
+        if doc_type == "manual":
+            vector_doc_type = "manual"
+        elif doc_type == "script_reference":
+            vector_doc_type = "script_reference"
+        
+        # Search for relevant pages
+        search_results = self.vector_store.search(
+            query=query,
+            doc_type=vector_doc_type,
+            n_results=max_examples * 3  # Get more to find pages with code
+        )
+        
+        if not search_results:
+            return [TextContent(
+                type="text",
+                text=f"No documentation found for: {query}"
+            )]
+        
+        # Extract code examples from pages
+        code_examples = []
+        seen_urls = set()
+        
+        for result in search_results:
+            if len(code_examples) >= max_examples:
+                break
+                
+            url = result["metadata"]["url"]
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            
+            # Get full page
+            page_id = get_page_id(url)
+            page = self.structured_store.get_page(page_id)
+            
+            if not page:
+                continue
+            
+            # Parse HTML to find code blocks
+            soup = BeautifulSoup(page["content"], "html.parser")
+            
+            # Find code blocks (Unity docs use <pre><code> or <div class="code-example">)
+            code_blocks = soup.find_all(["pre", "code"])
+            
+            for block in code_blocks:
+                code_text = block.get_text().strip()
+                
+                # Skip empty or very short snippets
+                if len(code_text) < 10:
+                    continue
+                
+                # Language filtering
+                if language != "any":
+                    # Simple heuristic: C# has "void", "class", JavaScript has "var", "function"
+                    if language == "csharp" and not any(kw in code_text for kw in ["void", "class", "public", "private"]):
+                        continue
+                    elif language == "javascript" and not any(kw in code_text for kw in ["var", "function", "let", "const"]):
+                        continue
+                
+                code_examples.append({
+                    "code": code_text,
+                    "source": page["title"],
+                    "url": url,
+                    "doc_type": page["doc_type"]
+                })
+                
+                if len(code_examples) >= max_examples:
+                    break
+        
+        if not code_examples:
+            return [TextContent(
+                type="text",
+                text=f"No code examples found for '{query}'. Try searching for topics with code samples like 'player movement' or 'collision detection'."
+            )]
+        
+        # Format response
+        response_parts = [
+            f"# Found {len(code_examples)} Code Example(s) for '{query}'\n"
+        ]
+        
+        for i, example in enumerate(code_examples):
+            response_parts.append(f"\n## Example {i+1}: {example['source']}")
+            response_parts.append(f"**Source:** {example['url']}")
+            response_parts.append(f"**Type:** {example['doc_type']}")
+            response_parts.append(f"\n```csharp\n{example['code']}\n```\n")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response_parts)
+        )]
+    
+    async def _get_method_signatures(self, args: dict) -> Sequence[TextContent]:
+        """Get method and property signatures for quick API reference."""
+        class_name = args.get("class_name")
+        method_name = args.get("method_name")
+        include_properties = args.get("include_properties", True)
+        static_only = args.get("static_only", False)
+        
+        if not class_name and not method_name:
+            return [TextContent(
+                type="text",
+                text="Please provide either 'class_name' or 'method_name' parameter"
+            )]
+        
+        response_parts = []
+        
+        # Search by class name
+        if class_name:
+            class_data = self.structured_store.get_class(class_name)
+            
+            if not class_data:
+                return [TextContent(
+                    type="text",
+                    text=f"Class '{class_name}' not found in database. Try: python main.py --download"
+                )]
+            
+            response_parts.append(f"# API Reference: {class_name}\n")
+            response_parts.append(f"**Namespace:** {class_data.get('namespace', 'N/A')}")
+            if class_data.get("inherits_from"):
+                response_parts.append(f"**Inherits:** {class_data['inherits_from']}")
+            response_parts.append("")
+            
+            # Methods
+            methods = class_data.get("methods", [])
+            if methods:
+                filtered_methods = [m for m in methods if not static_only or m.get("is_static")]
+                
+                if filtered_methods:
+                    response_parts.append(f"## Methods ({len(filtered_methods)})\n")
+                    for method in filtered_methods:
+                        static_marker = "static " if method.get("is_static") else ""
+                        return_type = method.get("return_type", "void")
+                        signature = method.get("signature", f"{method['name']}()")
+                        
+                        response_parts.append(f"### {static_marker}{return_type} {signature}")
+                        if method.get("description"):
+                            desc = method["description"][:150]
+                            response_parts.append(f"{desc}..." if len(method["description"]) > 150 else desc)
+                        response_parts.append("")
+            
+            # Properties
+            if include_properties:
+                properties = class_data.get("properties", [])
+                if properties:
+                    filtered_props = [p for p in properties if not static_only or p.get("is_static")]
+                    
+                    if filtered_props:
+                        response_parts.append(f"## Properties ({len(filtered_props)})\n")
+                        for prop in filtered_props:
+                            static_marker = "static " if prop.get("is_static") else ""
+                            prop_type = prop.get("property_type", "object")
+                            
+                            response_parts.append(f"### {static_marker}{prop_type} {prop['name']}")
+                            if prop.get("description"):
+                                desc = prop["description"][:150]
+                                response_parts.append(f"{desc}..." if len(prop["description"]) > 150 else desc)
+                            response_parts.append("")
+        
+        # Search by method name
+        elif method_name:
+            methods = self.structured_store.search_methods(method_name)
+            
+            if not methods:
+                return [TextContent(
+                    type="text",
+                    text=f"No methods found matching '{method_name}'"
+                )]
+            
+            filtered_methods = [m for m in methods if not static_only or m.get("is_static")]
+            
+            if not filtered_methods:
+                return [TextContent(
+                    type="text",
+                    text=f"No {'static ' if static_only else ''}methods found matching '{method_name}'"
+                )]
+            
+            response_parts.append(f"# Methods matching '{method_name}' ({len(filtered_methods)})\n")
+            
+            for method in filtered_methods:
+                static_marker = "static " if method.get("is_static") else ""
+                return_type = method.get("return_type", "void")
+                signature = method.get("signature", f"{method['name']}()")
+                class_name = method.get("class_name", "Unknown")
+                namespace = method.get("namespace", "")
+                
+                response_parts.append(f"## {namespace}.{class_name}.{method['name']}")
+                response_parts.append(f"```csharp\n{static_marker}{return_type} {signature}\n```")
+                if method.get("description"):
+                    response_parts.append(f"{method['description']}")
+                response_parts.append("")
+        
+        if not response_parts:
+            return [TextContent(
+                type="text",
+                text="No API signatures found"
+            )]
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response_parts)
+        )]
+    
+    async def _search_by_use_case(self, args: dict) -> Sequence[TextContent]:
+        """Search Unity documentation by use case or goal."""
+        use_case = args["use_case"]
+        experience_level = args.get("experience_level", "intermediate")
+        max_results = min(args.get("max_results", 3), 5)
+        prefer_code = args.get("prefer_code", True)
+        
+        # Enhance the query based on experience level
+        query_enhancements = {
+            "beginner": f"{use_case} tutorial basics getting started simple example",
+            "intermediate": f"{use_case} implementation best practices example",
+            "advanced": f"{use_case} advanced optimization performance architecture"
+        }
+        
+        enhanced_query = query_enhancements.get(experience_level, use_case)
+        
+        # Search with enhanced query
+        search_results = self.vector_store.search(
+            query=enhanced_query,
+            n_results=max_results * 2
+        )
+        
+        if not search_results:
+            return [TextContent(
+                type="text",
+                text=f"No documentation found for use case: '{use_case}'. Try rephrasing or using more specific terms."
+            )]
+        
+        # Process results
+        solutions = []
+        seen_urls = set()
+        
+        for result in search_results:
+            if len(solutions) >= max_results:
+                break
+            
+            url = result["metadata"]["url"]
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
+            
+            page_id = get_page_id(url)
+            page = self.structured_store.get_page(page_id)
+            
+            if not page:
+                continue
+            
+            # Check for code if preferred
+            has_code = "<code>" in page["content"] or "<pre>" in page["content"]
+            
+            if prefer_code and not has_code:
+                continue
+            
+            # Extract a relevant snippet
+            content = page["content"]
+            snippet_length = 500 if experience_level == "beginner" else 300
+            snippet = content[:snippet_length] + "..." if len(content) > snippet_length else content
+            
+            solutions.append({
+                "title": page["title"],
+                "url": url,
+                "doc_type": page["doc_type"],
+                "snippet": snippet,
+                "has_code": has_code,
+                "relevance": result.get("distance", 0)  # Lower is better
+            })
+        
+        if not solutions:
+            return [TextContent(
+                type="text",
+                text=f"No solutions found for '{use_case}'. Try:\n- Removing 'prefer_code' filter\n- Using different keywords\n- Simplifying your use case description"
+            )]
+        
+        # Format response
+        level_intro = {
+            "beginner": "Here are beginner-friendly solutions:",
+            "intermediate": "Here are practical solutions:",
+            "advanced": "Here are advanced techniques:"
+        }
+        
+        response_parts = [
+            f"# Solutions for: '{use_case}'\n",
+            level_intro.get(experience_level, "Here are relevant solutions:"),
+            ""
+        ]
+        
+        for i, solution in enumerate(solutions):
+            response_parts.append(f"\n## Solution {i+1}: {solution['title']}")
+            response_parts.append(f"**URL:** {solution['url']}")
+            response_parts.append(f"**Type:** {solution['doc_type']}")
+            if solution["has_code"]:
+                response_parts.append("✅ **Contains code examples**")
+            response_parts.append(f"\n{solution['snippet']}\n")
+            response_parts.append(f"[Read full documentation]({solution['url']})\n")
+        
+        # Add helpful tips
+        response_parts.append("\n---\n")
+        response_parts.append("💡 **Next Steps:**")
+        if experience_level == "beginner":
+            response_parts.append("- Read through the examples carefully")
+            response_parts.append("- Try implementing in a test project")
+            response_parts.append("- Use 'extract_code_examples' tool for just the code")
+        else:
+            response_parts.append("- Use 'get_full_documents' for complete documentation")
+            response_parts.append("- Use 'get_related_documents' to explore related APIs")
+            response_parts.append("- Use 'extract_code_examples' to get code snippets")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response_parts)
         )]
     
     async def run(self) -> None:

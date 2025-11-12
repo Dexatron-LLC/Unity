@@ -74,6 +74,9 @@ class UnityDocsDownloader:
         Returns:
             Version string or None if not downloaded
         """
+        # Ensure download directory exists
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        
         if self.version_file.exists():
             try:
                 with open(self.version_file, 'r') as f:
@@ -90,6 +93,9 @@ class UnityDocsDownloader:
             version: Version string
             url: Download URL
         """
+        # Ensure download directory exists
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        
         try:
             with open(self.version_file, 'w') as f:
                 json.dump({
@@ -130,6 +136,9 @@ class UnityDocsDownloader:
         Returns:
             Path to downloaded ZIP file
         """
+        # Ensure download directory exists
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        
         # Check for updates if requested
         if check_version and not force:
             update_available, current, latest = self.check_for_updates()
@@ -156,6 +165,7 @@ class UnityDocsDownloader:
         total_size = int(response.headers.get('content-length', 0))
         block_size = 8192
         downloaded = 0
+        last_logged_progress = 0
         
         with open(self.zip_path, 'wb') as f:
             for chunk in response.iter_content(chunk_size=block_size):
@@ -163,9 +173,12 @@ class UnityDocsDownloader:
                     f.write(chunk)
                     downloaded += len(chunk)
                     
+                    # Only log every 10% to avoid spam
                     if total_size > 0:
                         progress = (downloaded / total_size) * 100
-                        logger.info(f"Download progress: {progress:.1f}%")
+                        if progress - last_logged_progress >= 10:
+                            logger.info(f"Download progress: {progress:.1f}%")
+                            last_logged_progress = progress
         
         logger.info(f"Download complete: {self.zip_path}")
         
@@ -210,7 +223,9 @@ class UnityDocsDownloader:
             logger.info(f"Removing ZIP file to save disk space: {self.zip_path}")
             self.zip_path.unlink()
         
-        return self.extract_dir
+        # Return the actual extracted directory (ZIP contains "Documentation" not "UnityDocumentation")
+        actual_docs_dir = self.download_dir / "Documentation"
+        return actual_docs_dir
     
     def download_and_extract(self, force: bool = False) -> Path:
         """Download and extract Unity documentation.

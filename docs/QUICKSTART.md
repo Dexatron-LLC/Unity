@@ -9,8 +9,8 @@
 ### 1. Install
 ```bash
 cd d:\Source\AI\Agents\Unity
-pip install -r requirements.txt
-playwright install chromium
+uv sync
+# or: pip install -e .
 ```
 
 ### 2. Configure
@@ -22,13 +22,13 @@ echo OPENAI_API_KEY=your-key-here > .env
 ### 3. Test (Optional)
 ```bash
 # Quick test with 10 pages
-python main.py --crawl-all --max-pages 10
+python main.py --download --max-pages 10
 ```
 
 ### 4. Index Documentation
 ```bash
-# Full index (30-60 minutes)
-python main.py --crawl-all
+# Full download and index (30-60 minutes)
+python main.py --download
 ```
 
 ### 5. Configure VS Code

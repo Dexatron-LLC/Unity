@@ -328,42 +328,49 @@ def reset_all(data_dir: str, download_dir: str, openai_api_key: str) -> None:
     
     for file_path in all_files:
         try:
-            # Read and parse HTML
-            html_content = local_crawler.read_html_file(file_path)
-            soup = local_crawler.parse_html(html_content)
-            
-            # Determine doc type from path
-            doc_type = "manual" if "/Manual/" in str(file_path) else "script_reference"
-            
-            # Generate URL (reconstruct from local path)
-            rel_path = file_path.relative_to(docs_dir)
-            url = f"https://docs.unity3d.com/{rel_path.as_posix()}"
-            
-            # Process content
-            if doc_type == "manual":
-                content_data = processor.extract_manual_data(str(html_content), url)
-            else:
-                content_data = processor.extract_script_reference_data(str(html_content), url)
+            # Read HTML file using local crawler (returns parsed data with content)
+            page_data = local_crawler.read_html_file(file_path)
             
             # Generate page ID
-            page_id = get_page_id(url)
+            page_id = get_page_id(page_data['url'])
             
             # Store in structured database
             structured_store.add_page(
                 page_id=page_id,
-                url=content_data["url"],
-                title=content_data["title"],
-                doc_type=content_data["type"],
-                content=content_data["content"]
+                url=page_data['url'],
+                title=page_data['title'],
+                doc_type=page_data['doc_type'],
+                content=page_data['content']
             )
             
+            # Process based on doc type for structured extraction
+            if page_data['doc_type'] == 'script_reference':
+                structured_data = processor.extract_script_reference_data(
+                    page_data['html'], page_data['url'], page_data['title']
+                )
+                
+                if structured_data.get('class_name'):
+                    structured_store.add_class(
+                        name=structured_data['class_name'],
+                        namespace=structured_data.get('namespace'),
+                        description=structured_data.get('description'),
+                        inherits_from=structured_data.get('inherits_from'),
+                        is_static=structured_data.get('is_static', False)
+                    )
+            
             # Add to vector store
-            chunks = processor.prepare_for_vector_store(content_data)
-            for chunk in chunks:
+            metadata = {
+                "url": page_data['url'],
+                "title": page_data['title'],
+                "doc_type": page_data['doc_type']
+            }
+            chunks = processor.prepare_for_vector_store(page_data['content'], metadata)
+            for i, (chunk_text, chunk_meta) in enumerate(chunks):
+                doc_id = f"{page_id}_{i}"
                 vector_store.add_document(
-                    doc_id=chunk["id"],
-                    content=chunk["content"],
-                    metadata=chunk["metadata"]
+                    doc_id=doc_id,
+                    content=chunk_text,
+                    metadata=chunk_meta
                 )
             
             processed += 1
