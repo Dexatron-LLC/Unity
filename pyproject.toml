@@ -1,0 +1,39 @@
+[project]
+name = "unity-mcp-server"
+version = "0.1.0"
+description = "MCP server for Unity documentation with semantic search and structured data"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=0.9.0",
+    "chromadb>=0.4.0",
+    "openai>=1.0.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "aiohttp>=3.9.0",
+    "python-dotenv>=1.0.0",
+    "dotenv>=0.9.9",
+]
+
+[project.scripts]
+unity-mcp-server = "src.server:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
