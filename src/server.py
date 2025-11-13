@@ -1010,6 +1010,176 @@ class UnityMCPServer:
             )
 
 
+async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_key: str) -> None:
+    """Download and index Unity documentation.
+    
+    Args:
+        data_dir: Directory for data storage
+        download_dir: Directory to download documentation
+        openai_api_key: OpenAI API key
+    """
+    from pathlib import Path
+    import shutil
+    from .downloader import UnityDocsDownloader
+    from .downloader.local_crawler import LocalDocsCrawler
+    from .processor import ContentProcessor
+    from .scraper.utils import get_page_id
+    import hashlib
+    
+    logger.info("Step 1/4: Clearing old data (if any)...")
+    
+    # Clear databases
+    data_path = Path(data_dir).absolute()
+    download_path = Path(download_dir).absolute()
+    
+    vector_db = data_path / "vector" / "chromadb"
+    structured_db = data_path / "structured" / "unity_docs.db"
+    
+    if vector_db.exists():
+        shutil.rmtree(vector_db)
+        logger.info(f"  Cleared vector database")
+    
+    if structured_db.exists():
+        structured_db.unlink()
+        logger.info(f"  Cleared structured database")
+    
+    # Clear downloads
+    if download_path.exists():
+        shutil.rmtree(download_path)
+        logger.info(f"  Cleared downloads directory")
+    
+    download_path.mkdir(parents=True, exist_ok=True)
+    
+    logger.info("Step 2/4: Downloading Unity documentation...")
+    
+    # Download documentation
+    downloader = UnityDocsDownloader(str(download_path))
+    extract_dir = downloader.download_and_extract()
+    
+    logger.info("Step 3/4: Indexing documentation...")
+    
+    # Get documentation paths
+    manual_path = downloader.get_manual_path()
+    script_path = downloader.get_script_reference_path()
+    
+    if not manual_path and not script_path:
+        raise RuntimeError("Could not find documentation in extracted files")
+    
+    # Initialize storage
+    vector_store = VectorStore(data_dir, openai_api_key)
+    structured_store = StructuredStore(data_dir)
+    processor = ContentProcessor()
+    
+    # Initialize local crawler
+    docs_root = Path(download_dir) / "Documentation"
+    local_crawler = LocalDocsCrawler(docs_root)
+    
+    # Collect files
+    files_to_process = []
+    
+    if manual_path:
+        logger.info(f"  Finding Manual files...")
+        manual_files = local_crawler.get_manual_files(manual_path)
+        files_to_process.extend(manual_files)
+        logger.info(f"  Found {len(manual_files)} Manual files")
+    
+    if script_path:
+        logger.info(f"  Finding ScriptReference files...")
+        script_files = local_crawler.get_script_reference_files(script_path)
+        files_to_process.extend(script_files)
+        logger.info(f"  Found {len(script_files)} ScriptReference files")
+    
+    logger.info(f"Step 4/4: Processing {len(files_to_process)} files...")
+    
+    # Process files
+    processed = 0
+    
+    for i, file_path in enumerate(files_to_process):
+        try:
+            if (i + 1) % 1000 == 0:
+                logger.info(f"  Progress: {i + 1}/{len(files_to_process)} files")
+            
+            # Read file
+            page_data = local_crawler.read_html_file(file_path)
+            
+            # Generate page ID
+            page_id = hashlib.md5(page_data['url'].encode()).hexdigest()
+            
+            # Store in structured database
+            structured_store.add_page(
+                page_id=page_id,
+                url=page_data['url'],
+                title=page_data['title'],
+                doc_type=page_data['doc_type'],
+                content=page_data['content']
+            )
+            
+            # Process based on doc type
+            if page_data['doc_type'] == 'script_reference':
+                structured_data = processor.extract_script_reference_data(
+                    page_data['html'], page_data['url'], page_data['title']
+                )
+                
+                if structured_data['class_name']:
+                    class_id = structured_store.add_class(
+                        name=structured_data['class_name'],
+                        namespace=structured_data['namespace'],
+                        page_id=page_id,
+                        description=structured_data['description'],
+                        inherits_from=structured_data['inherits_from'],
+                        is_static=structured_data['is_static']
+                    )
+                    
+                    for method in structured_data['methods']:
+                        structured_store.add_method(
+                            class_id=class_id,
+                            name=method['name'],
+                            return_type=method.get('return_type'),
+                            is_static=method.get('is_static', False),
+                            description=method.get('description'),
+                            signature=method.get('signature')
+                        )
+                    
+                    for prop in structured_data['properties']:
+                        structured_store.add_property(
+                            class_id=class_id,
+                            name=prop['name'],
+                            property_type=prop.get('property_type'),
+                            is_static=prop.get('is_static', False),
+                            description=prop.get('description')
+                        )
+            
+            # Prepare for vector store
+            chunks = processor.prepare_for_vector_store(
+                content=page_data['content'],
+                metadata={
+                    'url': page_data['url'],
+                    'title': page_data['title'],
+                    'doc_type': page_data['doc_type']
+                },
+                chunk_size=1000
+            )
+            
+            # Add to vector store
+            for j, (chunk_text, chunk_metadata) in enumerate(chunks):
+                chunk_id = f"{page_id}_chunk_{j}"
+                vector_store.add_document(
+                    doc_id=chunk_id,
+                    url=page_data['url'],
+                    title=f"{page_data['title']} (part {j+1})" if len(chunks) > 1 else page_data['title'],
+                    content=chunk_text,
+                    doc_type=page_data['doc_type'],
+                    metadata=chunk_metadata
+                )
+            
+            processed += 1
+            
+        except Exception as e:
+            logger.warning(f"  Error processing {file_path.name}: {e}")
+    
+    logger.info(f"Successfully processed {processed}/{len(files_to_process)} files")
+
+
 async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = True) -> None:
     """Start the MCP server.
     
@@ -1037,52 +1207,25 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                 logger.warning("No documentation found locally!")
                 
                 if auto_download:
-                    logger.info("Auto-download enabled. Starting documentation download and indexing...")
-                    logger.info("This will take 30-60 minutes on first run.")
+                    logger.info("=" * 60)
+                    logger.info("AUTO-DOWNLOAD: Starting first-time setup...")
+                    logger.info("This will take 30-60 minutes but only happens once.")
+                    logger.info("=" * 60)
                     
-                    # Import here to avoid circular imports
-                    import sys
-                    import subprocess
-                    from pathlib import Path
-                    
-                    # Get the main.py path
-                    main_script = Path(__file__).parent.parent / "main.py"
-                    
-                    if main_script.exists():
-                        # Run reset in subprocess to handle it cleanly
-                        logger.info("Running: python main.py --reset")
-                        result = subprocess.run(
-                            [sys.executable, str(main_script), "--reset"],
-                            env={**os.environ, "OPENAI_API_KEY": openai_api_key},
-                            capture_output=False
-                        )
-                        
-                        if result.returncode != 0:
-                            logger.error("Failed to download and index documentation")
-                            logger.error("Please run manually: python main.py --reset")
-                        else:
-                            logger.info("Documentation downloaded and indexed successfully!")
-                    else:
-                        # Fallback: try to import and call directly
-                        try:
-                            # This is for when running as installed package
-                            logger.info("Attempting to download documentation directly...")
-                            download_dir = "./downloads"
-                            
-                            # Import the reset function
-                            import importlib.util
-                            spec = importlib.util.find_spec("main")
-                            if spec and spec.origin:
-                                import importlib
-                                main_module = importlib.import_module("main")
-                                main_module.reset_all(data_dir, download_dir, openai_api_key)
-                                logger.info("Documentation downloaded and indexed successfully!")
-                            else:
-                                logger.error("Could not find main.py to trigger download")
-                                logger.error(f"Please run: python main.py --reset")
-                        except Exception as e:
-                            logger.error(f"Error during auto-download: {e}")
-                            logger.error(f"Please run manually: python main.py --reset")
+                    try:
+                        # Download and index documentation directly
+                        await _download_and_index_docs(data_dir, "./downloads", openai_api_key)
+                        logger.info("=" * 60)
+                        logger.info("Documentation downloaded and indexed successfully!")
+                        logger.info("Server is now ready to use.")
+                        logger.info("=" * 60)
+                    except Exception as e:
+                        logger.error("=" * 60)
+                        logger.error(f"Error during auto-download: {e}")
+                        logger.error("Please run manually: python main.py --reset")
+                        logger.error("=" * 60)
+                        import traceback
+                        logger.error(traceback.format_exc())
                 else:
                     logger.warning(f"Please run 'python main.py --download' to download version {latest}")
         else:
