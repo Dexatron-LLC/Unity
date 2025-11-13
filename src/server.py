@@ -1180,18 +1180,21 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     logger.info(f"Successfully processed {processed}/{len(files_to_process)} files")
 
 
-async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = True) -> None:
+async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = False) -> None:
     """Start the MCP server.
     
     Args:
         data_dir: Directory for data storage
         openai_api_key: OpenAI API key
         check_version: Check for documentation updates on startup
-        auto_download: Automatically download documentation if not found
+        auto_download: Automatically download documentation if not found (not recommended for VS Code)
     
     Note:
         All logging output goes to stderr and ./logs/unity_mcp.log to avoid
         interfering with the MCP JSON-RPC protocol on stdout.
+        
+        Auto-download is disabled by default because VS Code expects the server to
+        start immediately. To download documentation, run: python main.py --reset
     """
     # Check for documentation updates on startup
     if check_version:
@@ -1204,13 +1207,21 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                 logger.warning(f"Documentation update available: {current} -> {latest}")
                 logger.warning(f"Run 'python main.py --download' to update")
             else:
-                logger.warning("No documentation found locally!")
+                logger.error("=" * 60)
+                logger.error("DOCUMENTATION NOT FOUND!")
+                logger.error("=" * 60)
+                logger.error("The Unity MCP server requires documentation to be downloaded first.")
+                logger.error("")
+                logger.error("To download documentation (~35k files, 30-60 minutes):")
+                logger.error("  1. Open a terminal in the Unity MCP directory")
+                logger.error("  2. Run: python main.py --reset")
+                logger.error("")
+                logger.error("After download completes, restart VS Code to use the server.")
+                logger.error("=" * 60)
                 
                 if auto_download:
-                    logger.info("=" * 60)
                     logger.info("AUTO-DOWNLOAD: Starting first-time setup...")
                     logger.info("This will take 30-60 minutes but only happens once.")
-                    logger.info("=" * 60)
                     
                     try:
                         # Download and index documentation directly
@@ -1226,8 +1237,6 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                         logger.error("=" * 60)
                         import traceback
                         logger.error(traceback.format_exc())
-                else:
-                    logger.warning(f"Please run 'python main.py --download' to download version {latest}")
         else:
             logger.info(f"Documentation is up-to-date (version {current})")
     
@@ -1248,8 +1257,8 @@ def main() -> None:
     # Use default data directory
     data_dir = os.getenv("UNITY_MCP_DATA_DIR", "./data")
     
-    # Check if auto-download should be disabled
-    auto_download = os.getenv("UNITY_MCP_AUTO_DOWNLOAD", "true").lower() != "false"
+    # Check if auto-download should be enabled (disabled by default for VS Code compatibility)
+    auto_download = os.getenv("UNITY_MCP_AUTO_DOWNLOAD", "false").lower() == "true"
     
     # Run the server
     asyncio.run(serve(data_dir, openai_api_key, check_version=True, auto_download=auto_download))
