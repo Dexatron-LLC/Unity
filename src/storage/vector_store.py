@@ -22,7 +22,7 @@ class VectorStore:
             data_dir: Directory to store ChromaDB data
             openai_api_key: OpenAI API key for embeddings
         """
-        self.data_dir = Path(data_dir) / "vector"
+        self.data_dir = Path(data_dir).absolute() / "vector"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
         self.openai_client = OpenAI(api_key=openai_api_key)

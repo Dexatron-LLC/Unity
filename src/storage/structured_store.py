@@ -19,7 +19,7 @@ class StructuredStore:
         Args:
             data_dir: Directory to store SQLite database
         """
-        self.data_dir = Path(data_dir) / "structured"
+        self.data_dir = Path(data_dir).absolute() / "structured"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
         self.db_path = self.data_dir / "unity_docs.db"

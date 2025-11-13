@@ -93,7 +93,7 @@ def download_and_index_docs(
     processor = ContentProcessor()
     
     # Initialize local crawler with actual documentation root
-    docs_root = Path(download_dir) / "Documentation"
+    docs_root = Path(download_dir).absolute() / "Documentation"
     local_crawler = LocalDocsCrawler(docs_root)
     
     # Collect files to process
