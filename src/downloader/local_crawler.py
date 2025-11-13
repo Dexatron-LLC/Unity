@@ -17,7 +17,7 @@ class LocalDocsCrawler:
         Args:
             docs_root: Root directory of extracted documentation
         """
-        self.docs_root = Path(docs_root)
+        self.docs_root = Path(docs_root).absolute()
     
     def find_html_files(
         self,
@@ -94,8 +94,16 @@ class LocalDocsCrawler:
                 doc_type = 'unknown'
             
             # Generate URL (relative path from docs root)
-            relative_path = file_path.relative_to(self.docs_root)
-            url = f"file:///{relative_path.as_posix()}"
+            try:
+                # Ensure both paths are absolute for comparison
+                abs_file_path = Path(file_path).absolute()
+                abs_docs_root = Path(self.docs_root).absolute()
+                relative_path = abs_file_path.relative_to(abs_docs_root)
+                url = f"file:///{relative_path.as_posix()}"
+            except ValueError:
+                # If paths don't match, use the file path as-is
+                logger.warning(f"Could not compute relative path for {file_path} from {self.docs_root}")
+                url = f"file:///{Path(file_path).name}"
             
             return {
                 'path': str(file_path),

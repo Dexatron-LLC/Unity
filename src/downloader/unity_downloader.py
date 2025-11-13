@@ -27,7 +27,7 @@ class UnityDocsDownloader:
         Args:
             download_dir: Directory to download and extract documentation
         """
-        self.download_dir = Path(download_dir)
+        self.download_dir = Path(download_dir).absolute()
         self.download_dir.mkdir(parents=True, exist_ok=True)
         
         self.zip_path = self.download_dir / "UnityDocumentation.zip"

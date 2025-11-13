@@ -26,7 +26,7 @@ class UnityMCPServer:
             data_dir: Directory for data storage
             openai_api_key: OpenAI API key
         """
-        self.data_dir = Path(data_dir)
+        self.data_dir = Path(data_dir).absolute()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize stores
@@ -1070,8 +1070,8 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     structured_store = StructuredStore(data_dir)
     processor = ContentProcessor()
     
-    # Initialize local crawler
-    docs_root = Path(download_dir) / "Documentation"
+    # Initialize local crawler with absolute path
+    docs_root = Path(download_dir).absolute() / "Documentation"
     local_crawler = LocalDocsCrawler(docs_root)
     
     # Collect files
