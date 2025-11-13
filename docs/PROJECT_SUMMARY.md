@@ -289,14 +289,20 @@ Configure in VS Code settings:
 
 ## Key Features
 
-✅ **Dual Storage**: Both vector and structured data
-✅ **Semantic Search**: AI-powered relevance ranking
-✅ **Structured Queries**: Fast class/method lookups
-✅ **Efficient Caching**: Local storage for speed
+✅ **10 MCP Tools**: Comprehensive Unity documentation access
+✅ **Dual Storage**: ChromaDB vectors + SQLite structured data
+✅ **Semantic Search**: AI-powered relevance ranking (35k+ pages)
+✅ **Productivity Tools**: Extract code, get signatures, use-case search
+✅ **Batch Retrieval**: Get 1-10 documents in one query
+✅ **Auto-Discovery**: Find related docs, base classes automatically
+✅ **Official Docs**: Downloads Unity's complete documentation ZIP
+✅ **Auto-Updates**: Version checking and update notifications
+✅ **Auto-Download**: Automatically downloads docs on first use (no manual setup!)
+✅ **Efficient Caching**: Local storage for instant retrieval
 ✅ **Async Operations**: Non-blocking I/O
 ✅ **Configurable**: CLI arguments and environment variables
-✅ **Testable**: Comprehensive test suite
-✅ **Documented**: README, SETUP guide, inline docs
+✅ **Well-Tested**: 37 comprehensive unit tests
+✅ **Professional**: MIT License, Contributing guide, Security policy
 
 ## Future Enhancements
 

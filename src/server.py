@@ -1010,13 +1010,14 @@ class UnityMCPServer:
             )
 
 
-async def serve(data_dir: str, openai_api_key: str, check_version: bool = True) -> None:
+async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = True) -> None:
     """Start the MCP server.
     
     Args:
         data_dir: Directory for data storage
         openai_api_key: OpenAI API key
         check_version: Check for documentation updates on startup
+        auto_download: Automatically download documentation if not found
     
     Note:
         All logging output goes to stderr and ./logs/unity_mcp.log to avoid
@@ -1034,7 +1035,56 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True) 
                 logger.warning(f"Run 'python main.py --download' to update")
             else:
                 logger.warning("No documentation found locally!")
-                logger.warning(f"Run 'python main.py --download' to download version {latest}")
+                
+                if auto_download:
+                    logger.info("Auto-download enabled. Starting documentation download and indexing...")
+                    logger.info("This will take 30-60 minutes on first run.")
+                    
+                    # Import here to avoid circular imports
+                    import sys
+                    import subprocess
+                    from pathlib import Path
+                    
+                    # Get the main.py path
+                    main_script = Path(__file__).parent.parent / "main.py"
+                    
+                    if main_script.exists():
+                        # Run reset in subprocess to handle it cleanly
+                        logger.info("Running: python main.py --reset")
+                        result = subprocess.run(
+                            [sys.executable, str(main_script), "--reset"],
+                            env={**os.environ, "OPENAI_API_KEY": openai_api_key},
+                            capture_output=False
+                        )
+                        
+                        if result.returncode != 0:
+                            logger.error("Failed to download and index documentation")
+                            logger.error("Please run manually: python main.py --reset")
+                        else:
+                            logger.info("Documentation downloaded and indexed successfully!")
+                    else:
+                        # Fallback: try to import and call directly
+                        try:
+                            # This is for when running as installed package
+                            logger.info("Attempting to download documentation directly...")
+                            download_dir = "./downloads"
+                            
+                            # Import the reset function
+                            import importlib.util
+                            spec = importlib.util.find_spec("main")
+                            if spec and spec.origin:
+                                import importlib
+                                main_module = importlib.import_module("main")
+                                main_module.reset_all(data_dir, download_dir, openai_api_key)
+                                logger.info("Documentation downloaded and indexed successfully!")
+                            else:
+                                logger.error("Could not find main.py to trigger download")
+                                logger.error(f"Please run: python main.py --reset")
+                        except Exception as e:
+                            logger.error(f"Error during auto-download: {e}")
+                            logger.error(f"Please run manually: python main.py --reset")
+                else:
+                    logger.warning(f"Please run 'python main.py --download' to download version {latest}")
         else:
             logger.info(f"Documentation is up-to-date (version {current})")
     
@@ -1055,5 +1105,8 @@ def main() -> None:
     # Use default data directory
     data_dir = os.getenv("UNITY_MCP_DATA_DIR", "./data")
     
+    # Check if auto-download should be disabled
+    auto_download = os.getenv("UNITY_MCP_AUTO_DOWNLOAD", "true").lower() != "false"
+    
     # Run the server
-    asyncio.run(serve(data_dir, openai_api_key, check_version=True))
+    asyncio.run(serve(data_dir, openai_api_key, check_version=True, auto_download=auto_download))

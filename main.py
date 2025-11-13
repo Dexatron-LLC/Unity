@@ -459,7 +459,7 @@ def main() -> None:
     args = parser.parse_args()
     
     # Get OpenAI API key
-    openai_api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY")
+    openai_api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY")    
     if not openai_api_key:
         logger.error("OpenAI API key required. Set OPENAI_API_KEY env var or use --openai-api-key")
         return
