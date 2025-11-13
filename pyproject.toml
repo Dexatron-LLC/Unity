@@ -52,7 +52,7 @@ Repository = "https://github.com/Dexatron-LLC/Unity"
 Issues = "https://github.com/Dexatron-LLC/Unity/issues"
 
 [project.scripts]
-unity-mcp-server = "main:main"
+unity-mcp-server = "src.server:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

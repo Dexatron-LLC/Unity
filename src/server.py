@@ -1040,3 +1040,20 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True) 
     
     server = UnityMCPServer(data_dir, openai_api_key)
     await server.run()
+
+
+def main() -> None:
+    """Main entry point for the MCP server when installed as a package."""
+    import sys
+    
+    # Get OpenAI API key from environment
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        logger.error("OPENAI_API_KEY environment variable is required")
+        sys.exit(1)
+    
+    # Use default data directory
+    data_dir = os.getenv("UNITY_MCP_DATA_DIR", "./data")
+    
+    # Run the server
+    asyncio.run(serve(data_dir, openai_api_key, check_version=True))
