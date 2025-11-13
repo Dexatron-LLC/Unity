@@ -43,7 +43,8 @@ An **MCP (Model Context Protocol) server** that provides expert-level access to 
 ### ⚙️ Infrastructure
 - 📊 **Dual Storage**: ChromaDB vectors + SQLite structured data
 - 📥 **Official Docs**: Unity's complete documentation ZIP (~35k HTML files)
-- 🔄 **Auto-Updates**: Checks for new Unity versions automatically  
+- 🔄 **Auto-Updates**: Checks for new Unity versions automatically
+- 🤖 **Auto-Download**: Automatically downloads docs on first run if not found
 - 🚀 **MCP Protocol**: Works with VS Code Copilot, Claude Desktop
 - 💾 **Smart Caching**: Local cache for instant retrieval
 
@@ -76,6 +77,8 @@ An **MCP (Model Context Protocol) server** that provides expert-level access to 
 ## Quick Installation
 
 ### Using Claude Desktop or VS Code with MCP
+
+> **Note**: On first run, the server will automatically download and index Unity documentation (~35k files, 30-60 minutes). This happens in the background when you first use the server.
 
 Add to your MCP settings file:
 
@@ -143,9 +146,21 @@ Add to your MCP settings file:
 
 ## Usage
 
-### First Time Setup - Download Documentation
+### Automatic Setup (Recommended)
 
-Download and index Unity documentation (this will take a while on first run):
+When you start the MCP server for the first time, it will **automatically detect** that documentation is missing and download/index it for you. This takes 30-60 minutes but only happens once.
+
+The server will:
+1. Check if documentation exists
+2. Automatically download Unity docs if missing (~35k files)
+3. Index everything into ChromaDB and SQLite
+4. Start serving requests
+
+No manual intervention needed! Just configure and use.
+
+### Manual Setup (Optional)
+
+You can also manually download and index Unity documentation:
 
 ```bash
 # Download official Unity docs and index everything (~35k files)
@@ -182,7 +197,36 @@ python main.py --no-version-check
 
 ### Using with MCP Clients
 
-Once configured (see Installation above), the server runs automatically when accessed by MCP clients like Claude Desktop or VS Code Copilot. The first time you use it, run `--download` to index the documentation.
+Once configured (see Installation above), the server runs automatically when accessed by MCP clients like Claude Desktop or VS Code Copilot. 
+
+**On first use**, the server will automatically download and index documentation (no manual steps needed). This takes 30-60 minutes but only happens once.
+
+### Environment Variables
+
+Configure the server behavior with environment variables:
+
+- **`OPENAI_API_KEY`** (required) - Your OpenAI API key for embeddings
+- **`UNITY_MCP_DATA_DIR`** (optional) - Data storage directory (default: `./data`)
+- **`UNITY_MCP_AUTO_DOWNLOAD`** (optional) - Set to `false` to disable auto-download (enabled by default)
+
+**Note**: Auto-download is **enabled by default**. You only need to set this variable if you want to disable it.
+
+To disable auto-download:
+
+```json
+{
+  "mcp.servers": {
+    "unity-docs": {
+      "command": "uvx",
+      "args": ["--from", "git+https://github.com/Dexatron-LLC/Unity.git", "unity-mcp-server"],
+      "env": {
+        "OPENAI_API_KEY": "your-api-key",
+        "UNITY_MCP_AUTO_DOWNLOAD": "false"
+      }
+    }
+  }
+}
+```
 
 ## Architecture
 

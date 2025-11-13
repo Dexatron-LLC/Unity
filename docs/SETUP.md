@@ -39,9 +39,11 @@ Edit `.env` and add your OpenAI API key:
 OPENAI_API_KEY=sk-your-actual-api-key-here
 ```
 
-### 4. Download & Index Documentation
+### 4. Download & Index Documentation (Optional)
 
-Download official Unity documentation and index it:
+> **New!** The server now automatically downloads documentation on first use. You can skip this step!
+
+If you prefer to pre-download documentation manually:
 
 ```bash
 # Download and index all documentation (~35k files, may take 30-60 minutes)
@@ -50,6 +52,8 @@ python main.py --download
 # Or start with a smaller test
 python main.py --download --max-pages 100
 ```
+
+**Automatic Mode (Recommended)**: Just configure the MCP server and it will download documentation automatically on first use.
 
 ### 5. Test the Server
 
@@ -141,7 +145,31 @@ Open any file and ask Copilot Unity-related questions:
 @unity-docs Show me Transform class methods
 ```
 
-**Note**: On first use with `uvx`, you'll need to run `--download` manually to index the documentation. The server will warn you if documentation is not found.
+**First Time Use**: The server will automatically download and index documentation (~35k files, 30-60 minutes). This happens in the background and only occurs once.
+
+**After Setup**: All queries are instant, served from local cache!
+
+## Environment Variables
+
+Configure server behavior with environment variables:
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | ✅ Yes | - | Your OpenAI API key for embeddings |
+| `UNITY_MCP_DATA_DIR` | ❌ No | `./data` | Directory for storing cached data |
+| `UNITY_MCP_AUTO_DOWNLOAD` | ❌ No | `true` | Set to `false` to disable auto-download |
+
+> **Note**: Auto-download is enabled by default. Only set `UNITY_MCP_AUTO_DOWNLOAD=false` if you want to disable it.
+
+**Example - Disable auto-download**:
+```json
+{
+  "env": {
+    "OPENAI_API_KEY": "your-key",
+    "UNITY_MCP_AUTO_DOWNLOAD": "false"
+  }
+}
+```
 
 ## Advanced Configuration
 
