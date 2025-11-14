@@ -19,19 +19,25 @@ logger = logging.getLogger(__name__)
 class UnityMCPServer:
     """MCP server for Unity documentation search and retrieval."""
     
-    def __init__(self, data_dir: str, openai_api_key: str):
+    def __init__(self, data_dir: str, openai_api_key: str, skip_stores: bool = False):
         """Initialize the MCP server.
         
         Args:
             data_dir: Directory for data storage
             openai_api_key: OpenAI API key
+            skip_stores: If True, don't initialize storage (for pre-download state)
         """
         self.data_dir = Path(data_dir).absolute()
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.openai_api_key = openai_api_key
         
-        # Initialize stores
-        self.vector_store = VectorStore(str(self.data_dir), openai_api_key)
-        self.structured_store = StructuredStore(str(self.data_dir))
+        # Initialize stores (unless skipped for download)
+        if not skip_stores:
+            self.vector_store = VectorStore(str(self.data_dir), openai_api_key)
+            self.structured_store = StructuredStore(str(self.data_dir))
+        else:
+            self.vector_store = None
+            self.structured_store = None
         
         # Initialize MCP server
         self.server = Server("unity-docs-expert")
@@ -39,7 +45,15 @@ class UnityMCPServer:
         # Register handlers
         self._register_handlers()
         
-        logger.info("Unity MCP Server initialized")
+        logger.info("Unity MCP Server initialized" + (" (stores pending)" if skip_stores else ""))
+    
+    def init_stores(self) -> None:
+        """Initialize storage after documentation is available."""
+        if self.vector_store is None:
+            self.vector_store = VectorStore(str(self.data_dir), self.openai_api_key)
+        if self.structured_store is None:
+            self.structured_store = StructuredStore(str(self.data_dir))
+        logger.info("Stores initialized")
     
     def _register_handlers(self) -> None:
         """Register MCP server handlers."""
@@ -1200,7 +1214,8 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
         If documentation is missing and auto_download=True, the download starts
         AFTER the server initializes, so the client won't experience delays.
     """
-    download_task = None
+    needs_download = False
+    background_download_func = None
     
     # Check for documentation updates on startup
     if check_version:
@@ -1223,8 +1238,10 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                     logger.info("The server will be responsive during the download.")
                     logger.info("=" * 60)
                     
-                    # Create background task for download (will start after server initializes)
-                    async def background_download():
+                    needs_download = True
+                    
+                    # Create background task function (will be called after server is created)
+                    async def background_download(server_instance):
                         """Download documentation in the background."""
                         try:
                             # Small delay to ensure server is fully initialized
@@ -1235,6 +1252,10 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                             await _download_and_index_docs(data_dir, "./downloads", openai_api_key)
                             logger.info("=" * 60)
                             logger.info("Documentation downloaded and indexed successfully!")
+                            logger.info("Initializing storage systems...")
+                            logger.info("=" * 60)
+                            # Now initialize the stores with the downloaded data
+                            server_instance.init_stores()
                             logger.info("Server is now fully operational.")
                             logger.info("=" * 60)
                         except Exception as e:
@@ -1245,7 +1266,7 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                             import traceback
                             logger.error(traceback.format_exc())
                     
-                    download_task = asyncio.create_task(background_download())
+                    background_download_func = background_download
                 else:
                     logger.error("The Unity MCP server requires documentation to be downloaded first.")
                     logger.error("")
@@ -1259,7 +1280,15 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
             logger.info(f"Documentation is up-to-date (version {current})")
     
     # Start server immediately (download runs in background if needed)
-    server = UnityMCPServer(data_dir, openai_api_key)
+    # If docs are missing and auto_download is enabled, skip store initialization
+    skip_stores = needs_download
+    server = UnityMCPServer(data_dir, openai_api_key, skip_stores=skip_stores)
+    
+    # If we need to download, start the background task
+    download_task = None
+    if needs_download and background_download_func:
+        download_task = asyncio.create_task(background_download_func(server))
+    
     await server.run(download_task)
 
 
