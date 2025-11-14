@@ -248,3 +248,12 @@ class VectorStore:
             )
         
         logger.info(f"Cleared vector store: {doc_type or 'all'}")
+    
+    def close(self) -> None:
+        """Close the vector store and release resources."""
+        # ChromaDB's PersistentClient doesn't have an explicit close method,
+        # but we can clear our references to allow garbage collection
+        self.manual_collection = None
+        self.script_collection = None
+        self.chroma_client = None
+        logger.info("Vector store closed")
