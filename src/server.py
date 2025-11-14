@@ -1074,7 +1074,7 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     downloader = UnityDocsDownloader(str(download_path))
     extract_dir = downloader.download_and_extract()
     
-    logger.info("Step 3/4: Indexing documentation...")
+    logger.info("Step 3/4: Initializing storage systems...")
     
     # Get documentation paths
     manual_path = downloader.get_manual_path()
@@ -1083,39 +1083,52 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     if not manual_path and not script_path:
         raise RuntimeError("Could not find documentation in extracted files")
     
-    # Initialize storage
+    logger.info(f"  Manual path: {manual_path}")
+    logger.info(f"  Script path: {script_path}")
+    
+    # Initialize storage BEFORE processing
+    logger.info(f"  Creating VectorStore at: {data_dir}")
     vector_store = VectorStore(data_dir, openai_api_key)
+    logger.info(f"  Creating StructuredStore at: {data_dir}")
     structured_store = StructuredStore(data_dir)
+    logger.info(f"  Creating ContentProcessor")
     processor = ContentProcessor()
+    logger.info("  Storage systems initialized successfully")
     
     # Initialize local crawler with absolute path
     docs_root = Path(download_dir).absolute() / "Documentation"
     local_crawler = LocalDocsCrawler(docs_root)
     
+    logger.info("Step 4/4: Collecting files to process...")
+    
     # Collect files
     files_to_process = []
     
     if manual_path:
-        logger.info(f"  Finding Manual files...")
+        logger.info(f"  Scanning Manual directory: {manual_path}")
         manual_files = local_crawler.get_manual_files(manual_path)
         files_to_process.extend(manual_files)
-        logger.info(f"  Found {len(manual_files)} Manual files")
+        logger.info(f"  ✓ Found {len(manual_files)} Manual files")
     
     if script_path:
-        logger.info(f"  Finding ScriptReference files...")
+        logger.info(f"  Scanning ScriptReference directory: {script_path}")
         script_files = local_crawler.get_script_reference_files(script_path)
         files_to_process.extend(script_files)
-        logger.info(f"  Found {len(script_files)} ScriptReference files")
+        logger.info(f"  ✓ Found {len(script_files)} ScriptReference files")
     
-    logger.info(f"Step 4/4: Processing {len(files_to_process)} files...")
+    logger.info("=" * 60)
+    logger.info(f"PROCESSING {len(files_to_process)} FILES...")
+    logger.info(f"This will take approximately {len(files_to_process) // 600} minutes")
+    logger.info("=" * 60)
     
     # Process files
     processed = 0
+    errors = 0
     
     for i, file_path in enumerate(files_to_process):
         try:
             if (i + 1) % 1000 == 0:
-                logger.info(f"  Progress: {i + 1}/{len(files_to_process)} files")
+                logger.info(f"  Progress: {i + 1}/{len(files_to_process)} files (processed: {processed}, errors: {errors})")
             
             # Read file
             page_data = local_crawler.read_html_file(file_path)
@@ -1193,9 +1206,13 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
             processed += 1
             
         except Exception as e:
-            logger.warning(f"  Error processing {file_path.name}: {e}")
+            errors += 1
+            if errors <= 10:  # Only log first 10 errors to avoid spam
+                logger.error(f"  Error processing {file_path.name}: {e}")
+                if errors == 10:
+                    logger.error("  (Suppressing further error messages...)")
     
-    logger.info(f"Successfully processed {processed}/{len(files_to_process)} files")
+    logger.info(f"Processing complete: {processed}/{len(files_to_process)} files processed, {errors} errors")
 
 
 async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = True) -> None:
