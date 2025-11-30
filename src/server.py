@@ -41,6 +41,9 @@ class UnityMCPServer:
         """
         self.data_dir = Path(data_dir).absolute()
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        # Download directory is under data directory
+        self.download_dir = self.data_dir / "downloads"
+        self.docs_root = self.download_dir / "Documentation"
         self.openai_api_key = openai_api_key
         self.use_ollama = use_ollama or config.is_ollama()
         self.ollama_base_url = ollama_base_url or config.ollama_base_url
@@ -356,6 +359,91 @@ class UnityMCPServer:
                         },
                         "required": ["use_case"]
                     }
+                ),
+                Tool(
+                    name="list_doc_files",
+                    description=(
+                        "List files in the downloaded Unity documentation directory. "
+                        "Browse the raw documentation file structure. "
+                        "Use path='Manual' for manual docs, 'ScriptReference' for API docs."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Relative path within Documentation/en/ (e.g., 'Manual', 'ScriptReference', 'Manual/Physics')",
+                                "default": ""
+                            },
+                            "pattern": {
+                                "type": "string",
+                                "description": "Optional glob pattern to filter files (e.g., '*.html', 'Rigidbody*')",
+                                "default": "*"
+                            },
+                            "max_results": {
+                                "type": "number",
+                                "description": "Maximum number of files to list",
+                                "default": 50
+                            }
+                        }
+                    }
+                ),
+                Tool(
+                    name="read_doc_file",
+                    description=(
+                        "Read raw content from a Unity documentation file. "
+                        "Returns the actual HTML or text content of a specific file. "
+                        "Use list_doc_files first to find available files."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {
+                                "type": "string",
+                                "description": "Relative path to the file within Documentation/en/ (e.g., 'Manual/Rigidbody.html')"
+                            },
+                            "extract_text": {
+                                "type": "boolean",
+                                "description": "If true, extract plain text from HTML; if false, return raw HTML",
+                                "default": true
+                            },
+                            "max_length": {
+                                "type": "number",
+                                "description": "Maximum content length to return (characters)",
+                                "default": 50000
+                            }
+                        },
+                        "required": ["file_path"]
+                    }
+                ),
+                Tool(
+                    name="search_doc_files",
+                    description=(
+                        "Search for files in the Unity documentation by filename. "
+                        "Find specific documentation files without using the index. "
+                        "Useful for finding files by name when you know what you're looking for."
+                    ),
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "search_term": {
+                                "type": "string",
+                                "description": "Search term to find in filenames (e.g., 'Rigidbody', 'Physics', 'Transform')"
+                            },
+                            "doc_type": {
+                                "type": "string",
+                                "enum": ["manual", "script_reference", "both"],
+                                "description": "Type of documentation to search",
+                                "default": "both"
+                            },
+                            "max_results": {
+                                "type": "number",
+                                "description": "Maximum number of files to return",
+                                "default": 20
+                            }
+                        },
+                        "required": ["search_term"]
+                    }
                 )
             ]
         
@@ -383,6 +471,12 @@ class UnityMCPServer:
                     return await self._get_method_signatures(arguments)
                 elif name == "search_by_use_case":
                     return await self._search_by_use_case(arguments)
+                elif name == "list_doc_files":
+                    return await self._list_doc_files(arguments)
+                elif name == "read_doc_file":
+                    return await self._read_doc_file(arguments)
+                elif name == "search_doc_files":
+                    return await self._search_doc_files(arguments)
                 else:
                     return [TextContent(
                         type="text",
@@ -1040,6 +1134,296 @@ class UnityMCPServer:
         return [TextContent(
             type="text",
             text="\n".join(response_parts)
+        )]
+    
+    async def _list_doc_files(self, args: dict) -> Sequence[TextContent]:
+        """List files in the downloaded documentation directory."""
+        relative_path = args.get("path", "")
+        pattern = args.get("pattern", "*")
+        max_results = args.get("max_results", 50)
+        
+        # Build the target path
+        target_dir = self.docs_root / "en" / relative_path
+        
+        if not self.docs_root.exists():
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Documentation not downloaded yet.\n\n"
+                    f"Expected location: {self.docs_root}\n\n"
+                    f"Run 'python main.py --download' or 'python main.py --reset' to download documentation."
+                )
+            )]
+        
+        if not target_dir.exists():
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Path not found: {relative_path}\n\n"
+                    f"Available top-level directories in Documentation/en/:\n"
+                    f"{self._list_available_dirs()}"
+                )
+            )]
+        
+        # List files matching pattern
+        try:
+            if target_dir.is_file():
+                return [TextContent(
+                    type="text",
+                    text=f"'{relative_path}' is a file, not a directory. Use 'read_doc_file' to read it."
+                )]
+            
+            files = []
+            dirs = []
+            
+            for item in sorted(target_dir.glob(pattern))[:max_results * 2]:  # Get extra to separate files/dirs
+                rel_path = item.relative_to(self.docs_root / "en")
+                if item.is_dir():
+                    dirs.append(f"📁 {rel_path}/")
+                else:
+                    size_kb = item.stat().st_size / 1024
+                    files.append(f"📄 {rel_path} ({size_kb:.1f} KB)")
+            
+            # Combine and limit
+            all_items = dirs[:max_results//2] + files[:max_results - len(dirs[:max_results//2])]
+            
+            if not all_items:
+                return [TextContent(
+                    type="text",
+                    text=f"No files matching pattern '{pattern}' in {relative_path or 'Documentation/en/'}"
+                )]
+            
+            total_in_dir = sum(1 for _ in target_dir.iterdir())
+            
+            response = [
+                f"# Contents of Documentation/en/{relative_path}\n",
+                f"Pattern: `{pattern}` | Showing {len(all_items)} of {total_in_dir} items\n",
+                ""
+            ]
+            response.extend(all_items)
+            
+            if len(all_items) < total_in_dir:
+                response.append(f"\n... and {total_in_dir - len(all_items)} more items")
+                response.append("\nUse 'pattern' parameter to filter results")
+            
+            return [TextContent(
+                type="text",
+                text="\n".join(response)
+            )]
+            
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error listing directory: {str(e)}"
+            )]
+    
+    def _list_available_dirs(self) -> str:
+        """List available directories in the docs root."""
+        en_dir = self.docs_root / "en"
+        if not en_dir.exists():
+            return "Documentation/en/ directory not found"
+        
+        dirs = [f"- {d.name}/" for d in sorted(en_dir.iterdir()) if d.is_dir()]
+        return "\n".join(dirs) if dirs else "No directories found"
+    
+    async def _read_doc_file(self, args: dict) -> Sequence[TextContent]:
+        """Read raw content from a Unity documentation file."""
+        file_path = args["file_path"]
+        extract_text = args.get("extract_text", True)
+        max_length = args.get("max_length", 50000)
+        
+        # Build the full path
+        full_path = self.docs_root / "en" / file_path
+        
+        if not self.docs_root.exists():
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Documentation not downloaded yet.\n\n"
+                    f"Run 'python main.py --download' or 'python main.py --reset' to download documentation."
+                )
+            )]
+        
+        if not full_path.exists():
+            # Try to find similar files
+            suggestions = self._find_similar_files(file_path)
+            return [TextContent(
+                type="text",
+                text=(
+                    f"File not found: {file_path}\n\n"
+                    f"Did you mean:\n{suggestions}" if suggestions else
+                    f"File not found: {file_path}\n\nUse 'list_doc_files' or 'search_doc_files' to find available files."
+                )
+            )]
+        
+        if full_path.is_dir():
+            return [TextContent(
+                type="text",
+                text=f"'{file_path}' is a directory. Use 'list_doc_files' to browse it."
+            )]
+        
+        try:
+            content = full_path.read_text(encoding="utf-8", errors="replace")
+            
+            if extract_text and file_path.endswith(".html"):
+                # Extract text from HTML
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(content, "lxml")
+                
+                # Remove script and style elements
+                for script in soup(["script", "style", "nav", "header", "footer"]):
+                    script.decompose()
+                
+                # Get title
+                title = soup.find("title")
+                title_text = title.get_text().strip() if title else "Unknown"
+                
+                # Get main content
+                main_content = soup.find("div", class_="content") or soup.find("main") or soup.body
+                if main_content:
+                    text = main_content.get_text(separator="\n", strip=True)
+                else:
+                    text = soup.get_text(separator="\n", strip=True)
+                
+                # Clean up excessive whitespace
+                import re
+                text = re.sub(r'\n{3,}', '\n\n', text)
+                
+                # Truncate if needed
+                if len(text) > max_length:
+                    text = text[:max_length] + f"\n\n... [Truncated - {len(text) - max_length} more characters]"
+                
+                return [TextContent(
+                    type="text",
+                    text=f"# {title_text}\n\n**File:** {file_path}\n\n---\n\n{text}"
+                )]
+            else:
+                # Return raw content
+                if len(content) > max_length:
+                    content = content[:max_length] + f"\n\n... [Truncated - {len(content) - max_length} more characters]"
+                
+                return [TextContent(
+                    type="text",
+                    text=f"**File:** {file_path}\n**Size:** {len(content)} characters\n\n---\n\n{content}"
+                )]
+                
+        except Exception as e:
+            return [TextContent(
+                type="text",
+                text=f"Error reading file: {str(e)}"
+            )]
+    
+    def _find_similar_files(self, file_path: str, max_suggestions: int = 5) -> str:
+        """Find files with similar names."""
+        filename = Path(file_path).name
+        base_name = Path(file_path).stem
+        
+        suggestions = []
+        en_dir = self.docs_root / "en"
+        
+        if not en_dir.exists():
+            return ""
+        
+        # Search in likely directories
+        search_dirs = ["Manual", "ScriptReference"]
+        for search_dir in search_dirs:
+            dir_path = en_dir / search_dir
+            if dir_path.exists():
+                for f in dir_path.glob(f"*{base_name}*"):
+                    if f.is_file():
+                        rel_path = f.relative_to(en_dir)
+                        suggestions.append(f"- {rel_path}")
+                        if len(suggestions) >= max_suggestions:
+                            break
+            if len(suggestions) >= max_suggestions:
+                break
+        
+        return "\n".join(suggestions) if suggestions else ""
+    
+    async def _search_doc_files(self, args: dict) -> Sequence[TextContent]:
+        """Search for files in the Unity documentation by filename."""
+        search_term = args["search_term"]
+        doc_type = args.get("doc_type", "both")
+        max_results = args.get("max_results", 20)
+        
+        if not self.docs_root.exists():
+            return [TextContent(
+                type="text",
+                text=(
+                    f"Documentation not downloaded yet.\n\n"
+                    f"Run 'python main.py --download' or 'python main.py --reset' to download documentation."
+                )
+            )]
+        
+        en_dir = self.docs_root / "en"
+        
+        # Determine which directories to search
+        search_dirs = []
+        if doc_type in ["manual", "both"]:
+            manual_dir = en_dir / "Manual"
+            if manual_dir.exists():
+                search_dirs.append(("Manual", manual_dir))
+        if doc_type in ["script_reference", "both"]:
+            script_dir = en_dir / "ScriptReference"
+            if script_dir.exists():
+                search_dirs.append(("ScriptReference", script_dir))
+        
+        if not search_dirs:
+            return [TextContent(
+                type="text",
+                text="No documentation directories found. Run 'python main.py --download' first."
+            )]
+        
+        # Search for files
+        results = []
+        search_lower = search_term.lower()
+        
+        for dir_name, dir_path in search_dirs:
+            for html_file in dir_path.glob("**/*.html"):
+                if search_lower in html_file.name.lower():
+                    rel_path = html_file.relative_to(en_dir)
+                    size_kb = html_file.stat().st_size / 1024
+                    results.append({
+                        "path": str(rel_path),
+                        "name": html_file.stem,
+                        "type": dir_name,
+                        "size": size_kb
+                    })
+                    if len(results) >= max_results:
+                        break
+            if len(results) >= max_results:
+                break
+        
+        if not results:
+            return [TextContent(
+                type="text",
+                text=(
+                    f"No files found matching '{search_term}' in {doc_type} documentation.\n\n"
+                    f"Tips:\n"
+                    f"- Try a shorter search term\n"
+                    f"- Check spelling\n"
+                    f"- Use 'list_doc_files' to browse directories"
+                )
+            )]
+        
+        # Format results
+        response = [
+            f"# Found {len(results)} file(s) matching '{search_term}'\n",
+            ""
+        ]
+        
+        for r in results:
+            response.append(f"📄 **{r['name']}**")
+            response.append(f"   Path: `{r['path']}`")
+            response.append(f"   Type: {r['type']} | Size: {r['size']:.1f} KB")
+            response.append("")
+        
+        response.append("---")
+        response.append("Use `read_doc_file` with the path to read file contents.")
+        
+        return [TextContent(
+            type="text",
+            text="\n".join(response)
         )]
     
     async def run(self, background_task: asyncio.Task = None) -> None:
