@@ -83,6 +83,8 @@ An **MCP (Model Context Protocol) server** that provides expert-level access to 
 Add to your MCP settings file:
 
 **Claude Desktop** (`claude_desktop_config.json`):
+
+*Using OpenAI (default):*
 ```json
 {
   "mcpServers": {
@@ -101,7 +103,30 @@ Add to your MCP settings file:
 }
 ```
 
+*Using Ollama (local, no API key needed):*
+```json
+{
+  "mcpServers": {
+    "unity-docs": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/Dexatron-LLC/Unity.git",
+        "unity-mcp-server"
+      ],
+      "env": {
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
+      }
+    }
+  }
+}
+```
+
 **VS Code** (`.vscode/settings.json`):
+
+*Using OpenAI (default):*
 ```json
 {
   "mcp.servers": {
@@ -114,6 +139,27 @@ Add to your MCP settings file:
       ],
       "env": {
         "OPENAI_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+*Using Ollama (local, no API key needed):*
+```json
+{
+  "mcp.servers": {
+    "unity-docs": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/Dexatron-LLC/Unity.git",
+        "unity-mcp-server"
+      ],
+      "env": {
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
       }
     }
   }
@@ -205,9 +251,50 @@ Once configured (see Installation above), the server runs automatically when acc
 
 Configure the server behavior with environment variables:
 
-- **`OPENAI_API_KEY`** (required) - Your OpenAI API key for embeddings
-- **`UNITY_MCP_DATA_DIR`** (optional) - Data storage directory (default: `./data`)
-- **`UNITY_MCP_AUTO_DOWNLOAD`** (optional) - Set to `false` to disable auto-download (enabled by default)
+**Embedding Provider:**
+- **`EMBEDDING_PROVIDER`** - Set to `ollama` to use Ollama, or `openai` for OpenAI (default: `openai`)
+
+**OpenAI Configuration:**
+- **`OPENAI_API_KEY`** - Your OpenAI API key for embeddings (required if using OpenAI)
+- **`OPENAI_EMBEDDING_MODEL`** - OpenAI embedding model (default: `text-embedding-3-small`)
+
+**Ollama Configuration:**
+- **`OLLAMA_BASE_URL`** - Ollama server URL (default: `http://localhost:11434`)
+- **`OLLAMA_EMBEDDING_MODEL`** - Ollama embedding model (default: `nomic-embed-text`)
+
+**General Settings:**
+- **`UNITY_MCP_DATA_DIR`** - Data storage directory (default: `./data`)
+- **`UNITY_MCP_AUTO_DOWNLOAD`** - Set to `false` to disable auto-download (enabled by default)
+
+### Using Ollama (Local Embeddings)
+
+Ollama provides free, local embeddings without API costs. To use Ollama:
+
+1. **Install Ollama**: https://ollama.ai/download
+2. **Pull an embedding model**:
+   ```bash
+   ollama pull nomic-embed-text
+   ```
+3. **Start Ollama** (if not running):
+   ```bash
+   ollama serve
+   ```
+4. **Configure the MCP server** to use Ollama (see examples above)
+
+**Command Line Usage with Ollama:**
+```bash
+# Download and index with Ollama
+python main.py --download --use-ollama
+
+# Start server with Ollama
+python main.py --use-ollama
+
+# Custom Ollama configuration
+python main.py --use-ollama --ollama-url http://localhost:11434 --ollama-model nomic-embed-text
+
+# Reset and re-download with Ollama
+python main.py --reset --use-ollama
+```
 
 **Note**: Auto-download is **enabled by default**. You only need to set this variable if you want to disable it.
 
@@ -340,7 +427,7 @@ Unity/
 ### Requirements
 
 - Python 3.11+
-- OpenAI API key
+- OpenAI API key **OR** Ollama running locally
 - Internet connection (for downloading Unity docs)
 - UV package manager (recommended) or pip
 
@@ -384,7 +471,7 @@ pip install mcp chromadb openai beautifulsoup4 lxml python-dotenv
 ```
 
 ### OpenAI API Key Missing
-Set your API key in `.env` or environment variable:
+Set your API key in `.env` or environment variable (not needed if using Ollama):
 ```bash
 # In .env file
 OPENAI_API_KEY=sk-your-key-here
@@ -392,6 +479,22 @@ OPENAI_API_KEY=sk-your-key-here
 # Or as environment variable
 export OPENAI_API_KEY=sk-your-key-here  # Linux/Mac
 $env:OPENAI_API_KEY="sk-your-key-here"  # Windows PowerShell
+
+# Or use Ollama instead (no API key needed)
+export EMBEDDING_PROVIDER=ollama
+```
+
+### Ollama Connection Issues
+If you're using Ollama and see connection errors:
+```bash
+# Make sure Ollama is running
+ollama serve
+
+# Pull the embedding model if not already downloaded
+ollama pull nomic-embed-text
+
+# Test that Ollama is accessible
+curl http://localhost:11434/api/tags
 ```
 
 ### Documentation Not Found

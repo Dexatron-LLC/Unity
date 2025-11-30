@@ -178,23 +178,24 @@ class TestVectorStore(unittest.TestCase):
         """Clean up test fixtures."""
         shutil.rmtree(self.test_dir)
     
-    @patch('src.storage.vector_store.OpenAI')
+    @patch('src.storage.vector_store.OpenAIEmbedding')
     @patch('src.storage.vector_store.chromadb.PersistentClient')
-    def test_initialization(self, mock_chroma, mock_openai):
+    def test_initialization(self, mock_chroma, mock_openai_embed):
         """Test VectorStore initialization."""
         mock_client = MagicMock()
         mock_chroma.return_value = mock_client
         mock_client.get_or_create_collection.return_value = MagicMock()
+        mock_openai_embed.return_value = MagicMock()
         
-        store = VectorStore(self.test_dir, self.mock_api_key)
+        store = VectorStore(self.test_dir, openai_api_key=self.mock_api_key)
         
         self.assertIsNotNone(store)
         mock_chroma.assert_called_once()
         self.assertEqual(mock_client.get_or_create_collection.call_count, 2)
     
-    @patch('src.storage.vector_store.OpenAI')
+    @patch('src.storage.vector_store.OpenAIEmbedding')
     @patch('src.storage.vector_store.chromadb.PersistentClient')
-    def test_add_document(self, mock_chroma, mock_openai):
+    def test_add_document(self, mock_chroma, mock_openai_embed):
         """Test adding a document to vector store."""
         # Setup mocks
         mock_client = MagicMock()
@@ -202,13 +203,11 @@ class TestVectorStore(unittest.TestCase):
         mock_collection = MagicMock()
         mock_client.get_or_create_collection.return_value = mock_collection
         
-        mock_openai_instance = MagicMock()
-        mock_openai.return_value = mock_openai_instance
-        mock_response = MagicMock()
-        mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
-        mock_openai_instance.embeddings.create.return_value = mock_response
+        mock_embed_instance = MagicMock()
+        mock_openai_embed.return_value = mock_embed_instance
+        mock_embed_instance.get_embedding.return_value = [0.1] * 1536
         
-        store = VectorStore(self.test_dir, self.mock_api_key)
+        store = VectorStore(self.test_dir, openai_api_key=self.mock_api_key)
         
         # Add document
         store.add_document(
@@ -220,14 +219,14 @@ class TestVectorStore(unittest.TestCase):
         )
         
         # Verify embedding was created
-        mock_openai_instance.embeddings.create.assert_called_once()
+        mock_embed_instance.get_embedding.assert_called_once()
         
         # Verify document was added to collection
         mock_collection.add.assert_called_once()
     
-    @patch('src.storage.vector_store.OpenAI')
+    @patch('src.storage.vector_store.OpenAIEmbedding')
     @patch('src.storage.vector_store.chromadb.PersistentClient')
-    def test_search(self, mock_chroma, mock_openai):
+    def test_search(self, mock_chroma, mock_openai_embed):
         """Test searching in vector store."""
         # Setup mocks
         mock_client = MagicMock()
@@ -235,11 +234,9 @@ class TestVectorStore(unittest.TestCase):
         mock_collection = MagicMock()
         mock_client.get_or_create_collection.return_value = mock_collection
         
-        mock_openai_instance = MagicMock()
-        mock_openai.return_value = mock_openai_instance
-        mock_response = MagicMock()
-        mock_response.data = [MagicMock(embedding=[0.1] * 1536)]
-        mock_openai_instance.embeddings.create.return_value = mock_response
+        mock_embed_instance = MagicMock()
+        mock_openai_embed.return_value = mock_embed_instance
+        mock_embed_instance.get_embedding.return_value = [0.1] * 1536
         
         # Mock search results
         mock_collection.query.return_value = {
@@ -249,7 +246,7 @@ class TestVectorStore(unittest.TestCase):
             "distances": [[0.5]]
         }
         
-        store = VectorStore(self.test_dir, self.mock_api_key)
+        store = VectorStore(self.test_dir, openai_api_key=self.mock_api_key)
         
         # Search
         results = store.search("GameObject", doc_type="manual", n_results=5)
@@ -258,9 +255,9 @@ class TestVectorStore(unittest.TestCase):
         self.assertEqual(results[0]["id"], "doc1")
         self.assertEqual(results[0]["content"], "Test content")
     
-    @patch('src.storage.vector_store.OpenAI')
+    @patch('src.storage.vector_store.OpenAIEmbedding')
     @patch('src.storage.vector_store.chromadb.PersistentClient')
-    def test_get_stats(self, mock_chroma, mock_openai):
+    def test_get_stats(self, mock_chroma, mock_openai_embed):
         """Test getting vector store statistics."""
         mock_client = MagicMock()
         mock_chroma.return_value = mock_client
@@ -275,12 +272,36 @@ class TestVectorStore(unittest.TestCase):
             mock_script_collection
         ]
         
-        store = VectorStore(self.test_dir, self.mock_api_key)
+        mock_openai_embed.return_value = MagicMock()
+        
+        store = VectorStore(self.test_dir, openai_api_key=self.mock_api_key)
         stats = store.get_stats()
         
         self.assertEqual(stats["manual_count"], 10)
         self.assertEqual(stats["script_reference_count"], 20)
         self.assertEqual(stats["total_count"], 30)
+    
+    @patch('src.storage.vector_store.OllamaEmbedding')
+    @patch('src.storage.vector_store.chromadb.PersistentClient')
+    def test_ollama_initialization(self, mock_chroma, mock_ollama_embed):
+        """Test VectorStore initialization with Ollama."""
+        mock_client = MagicMock()
+        mock_chroma.return_value = mock_client
+        mock_client.get_or_create_collection.return_value = MagicMock()
+        mock_ollama_embed.return_value = MagicMock()
+        
+        store = VectorStore(
+            self.test_dir,
+            use_ollama=True,
+            ollama_base_url="http://localhost:11434",
+            ollama_model="nomic-embed-text"
+        )
+        
+        self.assertIsNotNone(store)
+        mock_ollama_embed.assert_called_once_with(
+            base_url="http://localhost:11434",
+            model="nomic-embed-text"
+        )
 
 
 if __name__ == "__main__":

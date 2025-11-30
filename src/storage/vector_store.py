@@ -7,25 +7,182 @@ from pathlib import Path
 
 import chromadb
 from chromadb.config import Settings
-from openai import OpenAI
+import requests
+
+from ..config import config
 
 logger = logging.getLogger(__name__)
+
+
+class EmbeddingProvider:
+    """Base class for embedding providers."""
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate embedding for text.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        raise NotImplementedError
+
+
+class OpenAIEmbedding(EmbeddingProvider):
+    """OpenAI embedding provider."""
+    
+    def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
+        """Initialize OpenAI embedding provider.
+        
+        Args:
+            api_key: OpenAI API key
+            model: Embedding model name
+        """
+        from openai import OpenAI
+        self.client = OpenAI(api_key=api_key)
+        self.model = model
+        logger.info(f"OpenAI embedding provider initialized (model: {model})")
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate embedding using OpenAI.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        response = self.client.embeddings.create(
+            model=self.model,
+            input=text
+        )
+        return response.data[0].embedding
+
+
+class OllamaEmbedding(EmbeddingProvider):
+    """Ollama embedding provider."""
+    
+    def __init__(self, base_url: str = "http://localhost:11434", model: str = "nomic-embed-text"):
+        """Initialize Ollama embedding provider.
+        
+        Args:
+            base_url: Ollama server URL
+            model: Embedding model name
+        """
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self._verify_connection()
+        logger.info(f"Ollama embedding provider initialized (url: {base_url}, model: {model})")
+    
+    def _verify_connection(self) -> None:
+        """Verify connection to Ollama server."""
+        try:
+            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response.raise_for_status()
+            
+            # Check if the model is available
+            models = response.json().get("models", [])
+            model_names = [m.get("name", "").split(":")[0] for m in models]
+            
+            if self.model not in model_names and f"{self.model}:latest" not in [m.get("name", "") for m in models]:
+                logger.warning(
+                    f"Model '{self.model}' not found in Ollama. Available models: {model_names}. "
+                    f"You may need to run: ollama pull {self.model}"
+                )
+        except requests.exceptions.ConnectionError:
+            raise ConnectionError(
+                f"Cannot connect to Ollama at {self.base_url}. "
+                f"Make sure Ollama is running (ollama serve) and accessible."
+            )
+        except Exception as e:
+            logger.warning(f"Could not verify Ollama connection: {e}")
+    
+    def get_embedding(self, text: str) -> List[float]:
+        """Generate embedding using Ollama.
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        response = requests.post(
+            f"{self.base_url}/api/embeddings",
+            json={
+                "model": self.model,
+                "prompt": text
+            },
+            timeout=30
+        )
+        response.raise_for_status()
+        return response.json()["embedding"]
+
+
+def create_embedding_provider(
+    openai_api_key: Optional[str] = None,
+    use_ollama: bool = False,
+    ollama_base_url: Optional[str] = None,
+    ollama_model: Optional[str] = None,
+    openai_model: Optional[str] = None
+) -> EmbeddingProvider:
+    """Create an embedding provider based on configuration.
+    
+    Args:
+        openai_api_key: OpenAI API key (required for OpenAI)
+        use_ollama: Whether to use Ollama instead of OpenAI
+        ollama_base_url: Ollama server URL
+        ollama_model: Ollama embedding model
+        openai_model: OpenAI embedding model
+        
+    Returns:
+        Configured embedding provider
+    """
+    # Check config for provider preference if not explicitly set
+    if not use_ollama and config.is_ollama():
+        use_ollama = True
+    
+    if use_ollama:
+        base_url = ollama_base_url or config.ollama_base_url
+        model = ollama_model or config.ollama_embedding_model
+        return OllamaEmbedding(base_url=base_url, model=model)
+    else:
+        if not openai_api_key:
+            raise ValueError("OpenAI API key is required when using OpenAI embeddings")
+        model = openai_model or config.openai_embedding_model
+        return OpenAIEmbedding(api_key=openai_api_key, model=model)
 
 
 class VectorStore:
     """Manages vector embeddings and semantic search using ChromaDB."""
     
-    def __init__(self, data_dir: str, openai_api_key: str):
+    def __init__(
+        self,
+        data_dir: str,
+        openai_api_key: Optional[str] = None,
+        use_ollama: bool = False,
+        ollama_base_url: Optional[str] = None,
+        ollama_model: Optional[str] = None
+    ):
         """Initialize the vector store.
         
         Args:
             data_dir: Directory to store ChromaDB data
-            openai_api_key: OpenAI API key for embeddings
+            openai_api_key: OpenAI API key for embeddings (required if not using Ollama)
+            use_ollama: Use Ollama for embeddings instead of OpenAI
+            ollama_base_url: Ollama server URL (default: http://localhost:11434)
+            ollama_model: Ollama embedding model (default: nomic-embed-text)
         """
         self.data_dir = Path(data_dir).absolute() / "vector"
         self.data_dir.mkdir(parents=True, exist_ok=True)
         
-        self.openai_client = OpenAI(api_key=openai_api_key)
+        # Initialize embedding provider
+        self.embedding_provider = create_embedding_provider(
+            openai_api_key=openai_api_key,
+            use_ollama=use_ollama,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model
+        )
         
         # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(
@@ -50,7 +207,7 @@ class VectorStore:
         logger.info("Vector store initialized")
     
     def _get_embedding(self, text: str) -> List[float]:
-        """Generate embedding for text using OpenAI.
+        """Generate embedding for text.
         
         Args:
             text: Text to embed
@@ -58,11 +215,7 @@ class VectorStore:
         Returns:
             Embedding vector
         """
-        response = self.openai_client.embeddings.create(
-            model="text-embedding-3-small",
-            input=text
-        )
-        return response.data[0].embedding
+        return self.embedding_provider.get_embedding(text)
     
     def add_document(
         self,

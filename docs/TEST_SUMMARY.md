@@ -5,17 +5,16 @@
 ### Test Files (4 files)
 
 1. **tests/__init__.py** - Test package initialization
-2. **tests/test_storage.py** - Storage layer tests (Vector + Structured) - 12 tests
-3. **tests/test_scraper.py** - Web scraping utilities tests - 15 tests
-4. **tests/test_processor.py** - Content processing tests - 8 tests
-5. **tests/test_server.py** - MCP server tests - 6 tests
+2. **tests/test_storage.py** - Storage layer tests (Vector + Structured) - 13 tests
+3. **tests/test_processor.py** - Content processing tests - 10 tests
+4. **tests/test_server.py** - MCP server tests - 6 tests
 
 ### Test Statistics
 
-- **Total Test Methods**: 37
-- **Total Test Classes**: 6 (2 storage, 2 scraper, 1 processor, 1 server)
+- **Total Test Methods**: 29
+- **Total Test Classes**: 4 (2 storage, 1 processor, 1 server)
 - **Coverage Areas**: All major components
-- **Mock Strategy**: External dependencies (ChromaDB, OpenAI, Playwright) fully mocked
+- **Mock Strategy**: External dependencies (ChromaDB, OpenAI, Ollama) fully mocked
 - **Run Time**: ~5-10 seconds
 - **All Tests Passing**: ✅
 
@@ -45,15 +44,6 @@ Updated storage to use organized subdirectories:
   - Document addition with embeddings
   - Semantic search
   - Statistics
-
-**Scraper Tests (test_scraper.py):**
-- ✅ TestUnityDocsScraper (8 tests)
-  - URL handling and validation
-  - Page ID generation
-  - Document type detection
-  - Browser lifecycle
-  - Page fetching
-  - Context manager usage
 
 **Processor Tests (test_processor.py):**
 - ✅ TestContentProcessor (10 tests)
@@ -107,7 +97,7 @@ All external dependencies are properly mocked:
 
 1. **OpenAI API** - No actual API calls, no costs
 2. **ChromaDB** - Memory-based, no disk I/O
-3. **Playwright** - Browser operations mocked
+3. **Ollama** - Embedding provider mocked
 4. **Network** - No HTTP requests
 
 This ensures:
@@ -205,12 +195,11 @@ To use the tests:
 ### Current Test Files
 
 1. ✅ `tests/__init__.py`
-2. ✅ `tests/test_storage.py` (12 tests)
-3. ✅ `tests/test_scraper.py` (15 tests)
-4. ✅ `tests/test_processor.py` (8 tests)
-5. ✅ `tests/test_server.py` (6 tests)
-6. ✅ `pytest.ini`
-7. ✅ `TESTING.md`
+2. ✅ `tests/test_storage.py` (13 tests)
+3. ✅ `tests/test_processor.py` (10 tests)
+4. ✅ `tests/test_server.py` (6 tests)
+5. ✅ `pytest.ini`
+6. ✅ `TESTING.md`
 
 ### Removed Files (obsolete)
 
@@ -220,7 +209,7 @@ To use the tests:
 
 ---
 
-**Status**: ✅ Complete - 37 tests passing
+**Status**: ✅ Complete - 29 tests passing
 **Total Lines of Test Code**: ~1,200+
 **Coverage**: All major components
 **Ready for**: Development, CI/CD, Production
