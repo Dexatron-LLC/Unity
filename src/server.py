@@ -1773,6 +1773,28 @@ async def serve(
 def main() -> None:
     """Main entry point for the MCP server when installed as a package."""
     import sys
+    from dotenv import load_dotenv
+    
+    # Load .env file BEFORE accessing config
+    load_dotenv()
+    
+    # Re-initialize config after loading .env
+    from .config import Config
+    global config
+    config = Config()
+    
+    # Configure logging to stderr ONLY (stdout is for MCP JSON-RPC)
+    log_dir = Path("./logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stderr),  # Explicitly use stderr
+            logging.FileHandler(log_dir / "unity_mcp.log")
+        ]
+    )
     
     # Determine embedding provider
     use_ollama = config.is_ollama()
