@@ -33,10 +33,33 @@ Create a `.env` file:
 cp .env.example .env
 ```
 
+**Option A: Using OpenAI (default)**
+
 Edit `.env` and add your OpenAI API key:
 
 ```
 OPENAI_API_KEY=sk-your-actual-api-key-here
+```
+
+**Option B: Using Ollama (local, free)**
+
+Edit `.env` to use Ollama instead:
+
+```
+EMBEDDING_PROVIDER=ollama
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_EMBEDDING_MODEL=nomic-embed-text
+```
+
+Then ensure Ollama is running with the embedding model:
+
+```bash
+# Install Ollama from https://ollama.ai/download
+# Pull the embedding model
+ollama pull nomic-embed-text
+
+# Start Ollama (if not already running)
+ollama serve
 ```
 
 ### 4. Download & Index Documentation (Optional)
@@ -63,11 +86,11 @@ Run the test suite to verify everything works:
 python -m unittest discover -s tests -v
 ```
 
-All 37 tests should pass.
+All 29 tests should pass.
 
 ### 6. Configure MCP in VS Code
 
-#### Option A: Using uvx (Simplest - Recommended)
+#### Option A: Using uvx with OpenAI (Simplest - Recommended)
 
 Add to `.vscode/settings.json`:
 
@@ -83,6 +106,28 @@ Add to `.vscode/settings.json`:
       ],
       "env": {
         "OPENAI_API_KEY": "your-api-key-here"
+      }
+    }
+  }
+}
+```
+
+#### Option A2: Using uvx with Ollama (Local, Free)
+
+```json
+{
+  "mcp.servers": {
+    "unity-docs": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/Dexatron-LLC/Unity.git",
+        "unity-mcp-server"
+      ],
+      "env": {
+        "EMBEDDING_PROVIDER": "ollama",
+        "OLLAMA_BASE_URL": "http://localhost:11434",
+        "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
       }
     }
   }
@@ -153,13 +198,45 @@ Open any file and ask Copilot Unity-related questions:
 
 Configure server behavior with environment variables:
 
+### Embedding Provider
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `OPENAI_API_KEY` | ✅ Yes | - | Your OpenAI API key for embeddings |
+| `EMBEDDING_PROVIDER` | ❌ No | `openai` | Set to `ollama` for local embeddings |
+
+### OpenAI Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | ✅ If using OpenAI | - | Your OpenAI API key for embeddings |
+| `OPENAI_EMBEDDING_MODEL` | ❌ No | `text-embedding-3-small` | OpenAI embedding model |
+
+### Ollama Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OLLAMA_BASE_URL` | ❌ No | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_EMBEDDING_MODEL` | ❌ No | `nomic-embed-text` | Ollama embedding model |
+
+### General Settings
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
 | `UNITY_MCP_DATA_DIR` | ❌ No | `./data` | Directory for storing cached data |
 | `UNITY_MCP_AUTO_DOWNLOAD` | ❌ No | `true` | Set to `false` to disable auto-download |
 
 > **Note**: Auto-download is enabled by default. Only set `UNITY_MCP_AUTO_DOWNLOAD=false` if you want to disable it.
+
+**Example - Using Ollama**:
+```json
+{
+  "env": {
+    "EMBEDDING_PROVIDER": "ollama",
+    "OLLAMA_BASE_URL": "http://localhost:11434",
+    "OLLAMA_EMBEDDING_MODEL": "nomic-embed-text"
+  }
+}
+```
 
 **Example - Disable auto-download**:
 ```json
@@ -172,6 +249,22 @@ Configure server behavior with environment variables:
 ```
 
 ## Advanced Configuration
+
+### Using Ollama via Command Line
+
+```bash
+# Download and index with Ollama
+python main.py --download --use-ollama
+
+# Start server with Ollama
+python main.py --use-ollama
+
+# Custom Ollama configuration
+python main.py --use-ollama --ollama-url http://localhost:11434 --ollama-model nomic-embed-text
+
+# Reset and re-download with Ollama
+python main.py --reset --use-ollama
+```
 
 ### Download Specific Documentation
 
@@ -220,13 +313,32 @@ python main.py
 
 ### Issue: "OpenAI API key required"
 
-**Solution**: Ensure `.env` file exists with valid `OPENAI_API_KEY` or set environment variable:
+**Solution**: Either set your OpenAI API key or switch to Ollama:
+
 ```bash
+# Option 1: Set OpenAI key
 # Windows PowerShell
 $env:OPENAI_API_KEY="sk-your-key-here"
 
 # Linux/Mac
 export OPENAI_API_KEY=sk-your-key-here
+
+# Option 2: Use Ollama instead (no API key needed)
+export EMBEDDING_PROVIDER=ollama
+```
+
+### Issue: "Cannot connect to Ollama"
+
+**Solution**: Ensure Ollama is running and the model is available:
+```bash
+# Start Ollama server
+ollama serve
+
+# Pull the embedding model
+ollama pull nomic-embed-text
+
+# Verify it's running
+curl http://localhost:11434/api/tags
 ```
 
 ### Issue: "Cannot find implementation or library stub for module"

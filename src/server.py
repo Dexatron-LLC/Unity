@@ -12,6 +12,7 @@ from mcp.server.stdio import stdio_server
 
 from .storage import VectorStore, StructuredStore
 from .scraper.utils import get_page_id, get_doc_type
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -19,21 +20,41 @@ logger = logging.getLogger(__name__)
 class UnityMCPServer:
     """MCP server for Unity documentation search and retrieval."""
     
-    def __init__(self, data_dir: str, openai_api_key: str, skip_stores: bool = False):
+    def __init__(
+        self,
+        data_dir: str,
+        openai_api_key: str = None,
+        skip_stores: bool = False,
+        use_ollama: bool = False,
+        ollama_base_url: str = None,
+        ollama_model: str = None
+    ):
         """Initialize the MCP server.
         
         Args:
             data_dir: Directory for data storage
-            openai_api_key: OpenAI API key
+            openai_api_key: OpenAI API key (required if not using Ollama)
             skip_stores: If True, don't initialize storage (for pre-download state)
+            use_ollama: Use Ollama for embeddings instead of OpenAI
+            ollama_base_url: Ollama server URL
+            ollama_model: Ollama embedding model
         """
         self.data_dir = Path(data_dir).absolute()
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.openai_api_key = openai_api_key
+        self.use_ollama = use_ollama or config.is_ollama()
+        self.ollama_base_url = ollama_base_url or config.ollama_base_url
+        self.ollama_model = ollama_model or config.ollama_embedding_model
         
         # Initialize stores (unless skipped for download)
         if not skip_stores:
-            self.vector_store = VectorStore(str(self.data_dir), openai_api_key)
+            self.vector_store = VectorStore(
+                str(self.data_dir),
+                openai_api_key=openai_api_key,
+                use_ollama=self.use_ollama,
+                ollama_base_url=self.ollama_base_url,
+                ollama_model=self.ollama_model
+            )
             self.structured_store = StructuredStore(str(self.data_dir))
         else:
             self.vector_store = None
@@ -45,12 +66,19 @@ class UnityMCPServer:
         # Register handlers
         self._register_handlers()
         
-        logger.info("Unity MCP Server initialized" + (" (stores pending)" if skip_stores else ""))
+        provider_info = f"Ollama ({self.ollama_base_url})" if self.use_ollama else "OpenAI"
+        logger.info(f"Unity MCP Server initialized (embedding: {provider_info})" + (" (stores pending)" if skip_stores else ""))
     
     def init_stores(self) -> None:
         """Initialize storage after documentation is available."""
         if self.vector_store is None:
-            self.vector_store = VectorStore(str(self.data_dir), self.openai_api_key)
+            self.vector_store = VectorStore(
+                str(self.data_dir),
+                openai_api_key=self.openai_api_key,
+                use_ollama=self.use_ollama,
+                ollama_base_url=self.ollama_base_url,
+                ollama_model=self.ollama_model
+            )
         if self.structured_store is None:
             self.structured_store = StructuredStore(str(self.data_dir))
         logger.info("Stores initialized")
@@ -1028,13 +1056,23 @@ class UnityMCPServer:
             )
 
 
-async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_key: str) -> None:
+async def _download_and_index_docs(
+    data_dir: str,
+    download_dir: str,
+    openai_api_key: str = None,
+    use_ollama: bool = False,
+    ollama_base_url: str = None,
+    ollama_model: str = None
+) -> None:
     """Download and index Unity documentation.
     
     Args:
         data_dir: Directory for data storage
         download_dir: Directory to download documentation
-        openai_api_key: OpenAI API key
+        openai_api_key: OpenAI API key (required if not using Ollama)
+        use_ollama: Use Ollama for embeddings
+        ollama_base_url: Ollama server URL
+        ollama_model: Ollama embedding model
     """
     from pathlib import Path
     import shutil
@@ -1088,7 +1126,13 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     
     # Initialize storage BEFORE processing
     logger.info(f"  Creating VectorStore at: {data_dir}")
-    vector_store = VectorStore(data_dir, openai_api_key)
+    vector_store = VectorStore(
+        data_dir,
+        openai_api_key=openai_api_key,
+        use_ollama=use_ollama,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model
+    )
     logger.info(f"  Creating StructuredStore at: {data_dir}")
     structured_store = StructuredStore(data_dir)
     logger.info(f"  Creating ContentProcessor")
@@ -1215,14 +1259,25 @@ async def _download_and_index_docs(data_dir: str, download_dir: str, openai_api_
     logger.info(f"Processing complete: {processed}/{len(files_to_process)} files processed, {errors} errors")
 
 
-async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, auto_download: bool = True) -> None:
+async def serve(
+    data_dir: str,
+    openai_api_key: str = None,
+    check_version: bool = True,
+    auto_download: bool = True,
+    use_ollama: bool = False,
+    ollama_base_url: str = None,
+    ollama_model: str = None
+) -> None:
     """Start the MCP server.
     
     Args:
         data_dir: Directory for data storage
-        openai_api_key: OpenAI API key
+        openai_api_key: OpenAI API key (required if not using Ollama)
         check_version: Check for documentation updates on startup
-        auto_download: Automatically download documentation if not found (runs in background after server starts)
+        auto_download: Automatically download documentation if not found
+        use_ollama: Use Ollama for embeddings instead of OpenAI
+        ollama_base_url: Ollama server URL
+        ollama_model: Ollama embedding model
     
     Note:
         All logging output goes to stderr and ./logs/unity_mcp.log to avoid
@@ -1231,13 +1286,21 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
         If documentation is missing and auto_download=True, the download starts
         AFTER the server initializes, so the client won't experience delays.
     """
+    # Determine embedding provider from config if not specified
+    use_ollama = use_ollama or config.is_ollama()
+    ollama_base_url = ollama_base_url or config.ollama_base_url
+    ollama_model = ollama_model or config.ollama_embedding_model
+    
+    # Download directory is under data directory
+    download_dir = os.path.join(data_dir, "downloads")
+    
     needs_download = False
     background_download_func = None
     
     # Check for documentation updates on startup
     if check_version:
         from .downloader import UnityDocsDownloader
-        downloader = UnityDocsDownloader("./downloads")
+        downloader = UnityDocsDownloader(download_dir)
         
         update_available, current, latest = downloader.check_for_updates()
         if update_available:
@@ -1266,7 +1329,14 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
                             logger.info("=" * 60)
                             logger.info("Starting documentation download in background...")
                             logger.info("=" * 60)
-                            await _download_and_index_docs(data_dir, "./downloads", openai_api_key)
+                            await _download_and_index_docs(
+                                data_dir,
+                                download_dir,
+                                openai_api_key=openai_api_key,
+                                use_ollama=use_ollama,
+                                ollama_base_url=ollama_base_url,
+                                ollama_model=ollama_model
+                            )
                             logger.info("=" * 60)
                             logger.info("Documentation downloaded and indexed successfully!")
                             logger.info("Initializing storage systems...")
@@ -1299,7 +1369,14 @@ async def serve(data_dir: str, openai_api_key: str, check_version: bool = True, 
     # Start server immediately (download runs in background if needed)
     # If docs are missing and auto_download is enabled, skip store initialization
     skip_stores = needs_download
-    server = UnityMCPServer(data_dir, openai_api_key, skip_stores=skip_stores)
+    server = UnityMCPServer(
+        data_dir,
+        openai_api_key=openai_api_key,
+        skip_stores=skip_stores,
+        use_ollama=use_ollama,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model
+    )
     
     # If we need to download, start the background task
     download_task = None
@@ -1313,10 +1390,14 @@ def main() -> None:
     """Main entry point for the MCP server when installed as a package."""
     import sys
     
-    # Get OpenAI API key from environment
+    # Determine embedding provider
+    use_ollama = config.is_ollama()
+    
+    # Get OpenAI API key from environment (only required if not using Ollama)
     openai_api_key = os.getenv("OPENAI_API_KEY")
-    if not openai_api_key:
-        logger.error("OPENAI_API_KEY environment variable is required")
+    if not use_ollama and not openai_api_key:
+        logger.error("OPENAI_API_KEY environment variable is required when not using Ollama")
+        logger.error("Set EMBEDDING_PROVIDER=ollama to use Ollama instead")
         sys.exit(1)
     
     # Use default data directory
@@ -1325,5 +1406,16 @@ def main() -> None:
     # Check if auto-download should be enabled (enabled by default)
     auto_download = os.getenv("UNITY_MCP_AUTO_DOWNLOAD", "true").lower() != "false"
     
+    # Log provider info
+    logger.info(f"Embedding provider: {config.get_provider_info()}")
+    
     # Run the server
-    asyncio.run(serve(data_dir, openai_api_key, check_version=True, auto_download=auto_download))
+    asyncio.run(serve(
+        data_dir,
+        openai_api_key=openai_api_key,
+        check_version=True,
+        auto_download=auto_download,
+        use_ollama=use_ollama,
+        ollama_base_url=config.ollama_base_url,
+        ollama_model=config.ollama_embedding_model
+    ))

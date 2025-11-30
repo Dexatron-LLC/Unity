@@ -8,15 +8,16 @@ import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 
+# Load environment variables BEFORE importing config
+load_dotenv()
+
 from src.server import serve
 from src.storage import VectorStore, StructuredStore
 from src.scraper.utils import get_page_id
 from src.downloader import UnityDocsDownloader
 from src.downloader.local_crawler import LocalDocsCrawler
 from src.processor import ContentProcessor
-
-# Load environment variables
-load_dotenv()
+from src.config import config
 
 # Configure logging - explicitly use stderr and log file to avoid interfering with MCP protocol on stdout
 log_dir = Path("./logs")
@@ -36,22 +37,29 @@ logger = logging.getLogger(__name__)
 def download_and_index_docs(
     data_dir: str,
     download_dir: str,
-    openai_api_key: str,
+    openai_api_key: str = None,
     doc_type: str = "both",
     max_pages: int = None,
-    check_version: bool = True
+    check_version: bool = True,
+    use_ollama: bool = False,
+    ollama_base_url: str = None,
+    ollama_model: str = None
 ) -> None:
     """Download and index Unity documentation from ZIP.
     
     Args:
         data_dir: Directory for data storage
         download_dir: Directory to download documentation
-        openai_api_key: OpenAI API key
+        openai_api_key: OpenAI API key (required if not using Ollama)
         doc_type: Type of docs to process
         max_pages: Maximum number of pages
         check_version: Check for documentation updates
+        use_ollama: Use Ollama for embeddings instead of OpenAI
+        ollama_base_url: Ollama server URL
+        ollama_model: Ollama embedding model
     """
     logger.info("Starting Unity documentation download and indexing...")
+    logger.info(f"Embedding provider: {'Ollama' if use_ollama else 'OpenAI'}")
     
     # Download and extract documentation
     downloader = UnityDocsDownloader(download_dir)
@@ -87,8 +95,14 @@ def download_and_index_docs(
         logger.error("Could not find documentation in extracted files")
         return
     
-    # Initialize storage
-    vector_store = VectorStore(data_dir, openai_api_key)
+    # Initialize storage with appropriate embedding provider
+    vector_store = VectorStore(
+        data_dir,
+        openai_api_key=openai_api_key,
+        use_ollama=use_ollama,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model
+    )
     structured_store = StructuredStore(data_dir)
     processor = ContentProcessor()
     
@@ -238,16 +252,29 @@ async def crawl_all_docs(
     raise SystemExit(1)
 
 
-def reset_all(data_dir: str, download_dir: str, openai_api_key: str) -> None:
+def reset_all(
+    data_dir: str,
+    download_dir: str,
+    openai_api_key: str = None,
+    use_ollama: bool = False,
+    ollama_base_url: str = None,
+    ollama_model: str = None,
+    max_pages: int = None
+) -> None:
     """Reset everything: clear databases, delete downloads, and re-download/process.
     
     Args:
         data_dir: Directory for data storage
         download_dir: Directory for downloads
-        openai_api_key: OpenAI API key
+        openai_api_key: OpenAI API key (required if not using Ollama)
+        use_ollama: Use Ollama for embeddings instead of OpenAI
+        ollama_base_url: Ollama server URL
+        ollama_model: Ollama embedding model
+        max_pages: Maximum number of pages to process (None for all)
     """
     logger.info("=" * 60)
     logger.info("RESET: Starting complete reset...")
+    logger.info(f"Embedding provider: {'Ollama' if use_ollama else 'OpenAI'}")
     logger.info("=" * 60)
     
     data_path = Path(data_dir).absolute()
@@ -314,14 +341,25 @@ def reset_all(data_dir: str, download_dir: str, openai_api_key: str) -> None:
     
     # Index all documentation
     logger.info("  - Starting indexing process...")
-    vector_store = VectorStore(str(data_path), openai_api_key)
+    vector_store = VectorStore(
+        str(data_path),
+        openai_api_key=openai_api_key,
+        use_ollama=use_ollama,
+        ollama_base_url=ollama_base_url,
+        ollama_model=ollama_model
+    )
     structured_store = StructuredStore(str(data_path))
     processor = ContentProcessor()
     local_crawler = LocalDocsCrawler(str(docs_dir))
     
     # Get all HTML files
     all_files = local_crawler.find_html_files(docs_dir)
-    logger.info(f"  - Found {len(all_files)} HTML files to process")
+    logger.info(f"  - Found {len(all_files)} HTML files total")
+    
+    # Limit files if max_pages specified
+    if max_pages:
+        all_files = all_files[:max_pages]
+        logger.info(f"  - Limited to {max_pages} files for processing")
     
     processed = 0
     errors = 0
@@ -353,6 +391,7 @@ def reset_all(data_dir: str, download_dir: str, openai_api_key: str) -> None:
                     structured_store.add_class(
                         name=structured_data['class_name'],
                         namespace=structured_data.get('namespace'),
+                        page_id=page_id,
                         description=structured_data.get('description'),
                         inherits_from=structured_data.get('inherits_from'),
                         is_static=structured_data.get('is_static', False)
@@ -369,7 +408,10 @@ def reset_all(data_dir: str, download_dir: str, openai_api_key: str) -> None:
                 doc_id = f"{page_id}_{i}"
                 vector_store.add_document(
                     doc_id=doc_id,
+                    url=page_data['url'],
+                    title=page_data['title'],
                     content=chunk_text,
+                    doc_type=page_data['doc_type'],
                     metadata=chunk_meta
                 )
             
@@ -426,15 +468,15 @@ def main() -> None:
     parser.add_argument(
         "--data-dir",
         type=str,
-        default="./data",
-        help="Directory for data storage (default: ./data)"
+        default=None,
+        help="Directory for data storage (default: ./data, or UNITY_MCP_DATA_DIR env var)"
     )
     
     parser.add_argument(
         "--download-dir",
         type=str,
-        default="./downloads",
-        help="Directory for downloaded ZIP files (default: ./downloads)"
+        default=None,
+        help="Directory for downloaded ZIP files (default: <data-dir>/downloads, or UNITY_MCP_DOWNLOAD_DIR env var)"
     )
     
     parser.add_argument(
@@ -456,32 +498,84 @@ def main() -> None:
         help="Reset everything: clear databases, delete downloads, and re-download/process documentation"
     )
     
+    # Ollama configuration arguments
+    parser.add_argument(
+        "--use-ollama",
+        action="store_true",
+        help="Use Ollama for embeddings instead of OpenAI (can also set EMBEDDING_PROVIDER=ollama)"
+    )
+    
+    parser.add_argument(
+        "--ollama-url",
+        type=str,
+        default=None,
+        help="Ollama server URL (default: http://localhost:11434, can also use OLLAMA_BASE_URL env var)"
+    )
+    
+    parser.add_argument(
+        "--ollama-model",
+        type=str,
+        default=None,
+        help="Ollama embedding model (default: nomic-embed-text, can also use OLLAMA_EMBEDDING_MODEL env var)"
+    )
+    
     args = parser.parse_args()
     
-    # Get OpenAI API key
-    openai_api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY")    
-    if not openai_api_key:
-        logger.error("OpenAI API key required. Set OPENAI_API_KEY env var or use --openai-api-key")
+    # Determine embedding provider
+    use_ollama = args.use_ollama or config.is_ollama()
+    ollama_base_url = args.ollama_url or config.ollama_base_url
+    ollama_model = args.ollama_model or config.ollama_embedding_model
+    
+    # Get OpenAI API key (only required if not using Ollama)
+    openai_api_key = args.openai_api_key or os.getenv("OPENAI_API_KEY")
+    
+    if not use_ollama and not openai_api_key:
+        logger.error("OpenAI API key required when not using Ollama.")
+        logger.error("Set OPENAI_API_KEY env var, use --openai-api-key, or use --use-ollama for local embeddings.")
         return
     
-    # Ensure data directory exists
-    data_dir = Path(args.data_dir).absolute()
+    # Log embedding provider
+    if use_ollama:
+        logger.info(f"Using Ollama for embeddings (url: {ollama_base_url}, model: {ollama_model})")
+    else:
+        logger.info("Using OpenAI for embeddings")
+    
+    # Get data directory from args, env var, or default
+    data_dir_str = args.data_dir or os.getenv("UNITY_MCP_DATA_DIR", "./data")
+    data_dir = Path(data_dir_str).absolute()
     data_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Data directory: {data_dir}")
+    
+    # Get download directory from args, env var, or default (under data dir)
+    default_download_dir = str(data_dir / "downloads")
+    download_dir_str = args.download_dir or os.getenv("UNITY_MCP_DOWNLOAD_DIR", default_download_dir)
+    download_dir = Path(download_dir_str).absolute()
+    download_dir.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Download directory: {download_dir}")
     
     if args.reset:
         # Complete reset: clear everything and re-download
-        download_dir = Path(args.download_dir).absolute()
-        reset_all(str(data_dir), str(download_dir), openai_api_key)
+        reset_all(
+            str(data_dir),
+            str(download_dir),
+            openai_api_key=openai_api_key,
+            use_ollama=use_ollama,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model,
+            max_pages=args.max_pages
+        )
     elif args.download:
         # Download and index from ZIP (recommended)
-        download_dir = Path(args.download_dir).absolute()
         download_and_index_docs(
             str(data_dir),
             str(download_dir),
-            openai_api_key,
-            args.doc_type,
-            args.max_pages,
-            check_version=not args.no_version_check
+            openai_api_key=openai_api_key,
+            doc_type=args.doc_type,
+            max_pages=args.max_pages,
+            check_version=not args.no_version_check,
+            use_ollama=use_ollama,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model
         )
     elif args.crawl_all:
         # Web scraping (legacy)
@@ -494,7 +588,14 @@ def main() -> None:
     else:
         # Run MCP server
         logger.info("Starting Unity MCP Server...")
-        asyncio.run(serve(str(data_dir), openai_api_key, check_version=not args.no_version_check))
+        asyncio.run(serve(
+            str(data_dir),
+            openai_api_key=openai_api_key,
+            check_version=not args.no_version_check,
+            use_ollama=use_ollama,
+            ollama_base_url=ollama_base_url,
+            ollama_model=ollama_model
+        ))
 
 
 if __name__ == "__main__":

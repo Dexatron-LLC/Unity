@@ -214,7 +214,19 @@ class UnityDocsDownloader:
         logger.info(f"Extracting documentation to {self.extract_dir}")
         
         with zipfile.ZipFile(self.zip_path, 'r') as zip_ref:
-            zip_ref.extractall(self.download_dir)
+            file_list = zip_ref.namelist()
+            total_files = len(file_list)
+            logger.info(f"Extracting {total_files} files...")
+            
+            last_logged_progress = 0
+            for i, file in enumerate(file_list):
+                zip_ref.extract(file, self.download_dir)
+                
+                # Log progress every 10%
+                progress = ((i + 1) / total_files) * 100
+                if progress - last_logged_progress >= 10:
+                    logger.info(f"Extraction progress: {progress:.0f}% ({i + 1}/{total_files} files)")
+                    last_logged_progress = progress
         
         logger.info("Extraction complete")
         
