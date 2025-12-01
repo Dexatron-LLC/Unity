@@ -553,6 +553,9 @@ def main() -> None:
     download_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Download directory: {download_dir}")
     
+    # Determine if any action flags were set
+    has_action = args.reset or args.download or args.crawl_all
+    
     if args.reset:
         # Complete reset: clear everything and re-download
         reset_all(
@@ -585,8 +588,9 @@ def main() -> None:
             args.doc_type,
             args.max_pages
         ))
-    else:
-        # Run MCP server
+    
+    # Run MCP server by default (when no action flags are provided)
+    if not has_action:
         logger.info("Starting Unity MCP Server...")
         asyncio.run(serve(
             str(data_dir),
